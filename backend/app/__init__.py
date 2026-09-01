@@ -1,0 +1,1 @@
+"""ThermalWatch AI backend package."""

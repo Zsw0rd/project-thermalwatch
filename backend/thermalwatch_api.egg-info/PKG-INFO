@@ -1,0 +1,16 @@
+Metadata-Version: 2.4
+Name: thermalwatch-api
+Version: 0.1.0
+Summary: ThermalWatch AI service layer
+Requires-Python: <3.14,>=3.12
+Requires-Dist: alembic<2.0,>=1.14
+Requires-Dist: fastapi<1.0,>=0.115
+Requires-Dist: geoalchemy2<1.0,>=0.16
+Requires-Dist: httpx<1.0,>=0.28
+Requires-Dist: pydantic-settings<3.0,>=2.7
+Requires-Dist: psycopg[binary]<4.0,>=3.2
+Requires-Dist: sqlalchemy<3.0,>=2.0
+Requires-Dist: uvicorn[standard]<1.0,>=0.34
+Provides-Extra: dev
+Requires-Dist: pytest<9.0,>=8.3; extra == "dev"
+Requires-Dist: ruff<1.0,>=0.9; extra == "dev"
