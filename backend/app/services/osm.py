@@ -135,7 +135,7 @@ def refresh_facilities(settings: Settings | None = None) -> FacilityRefreshRespo
                 response = client.post(
                     active_url,
                     data={"data": _query(settings)},
-                    headers={"User-Agent": "ThermalWatch-AI/0.1 OSM-context-client"},
+                    headers={"User-Agent": "AegisFire/0.1 OSM-context-client"},
                 )
                 response.raise_for_status()
                 candidate = response.json()

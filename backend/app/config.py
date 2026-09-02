@@ -8,10 +8,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     """Runtime configuration loaded from environment variables."""
 
-    app_name: str = "ThermalWatch AI API"
+    app_name: str = "AegisFire API"
     app_env: str = "development"
     demo_mode: bool = True
-    database_url: str = "postgresql+psycopg://thermalwatch:thermalwatch@localhost:5432/thermalwatch"
+    database_url: str = "postgresql+psycopg://aegisfire:aegisfire@localhost:5432/aegisfire"
     api_cors_origins: list[str] = ["http://localhost:3000"]
     firms_map_key: str | None = None
     firms_source: str = "VIIRS_NOAA20_NRT"

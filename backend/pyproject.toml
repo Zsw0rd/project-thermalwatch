@@ -3,9 +3,9 @@ requires = ["setuptools>=75"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "thermalwatch-api"
+name = "aegisfire-api"
 version = "0.1.0"
-description = "ThermalWatch AI service layer"
+description = "AegisFire service layer"
 requires-python = ">=3.12,<3.14"
 dependencies = [
   "alembic>=1.14,<2.0",

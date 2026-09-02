@@ -613,7 +613,7 @@ def invalidate_event_cache() -> None:
 
 
 def _download(url: str, destination: Path, timeout: int) -> None:
-    request = Request(url, headers={"User-Agent": "ThermalWatch-AI/0.1 NASA-FIRMS-client"})
+    request = Request(url, headers={"User-Agent": "AegisFire/0.1 NASA-FIRMS-client"})
     destination.parent.mkdir(parents=True, exist_ok=True)
     with (
         urlopen(request, timeout=timeout) as response,

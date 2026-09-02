@@ -11,7 +11,12 @@ def test_health_reports_data_mode() -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "ok"
+    assert body["service"] == "aegisfire-api"
     assert body["data_mode"] in {"snapshot", "live"}
+
+    root = client.get("/api/v1")
+    assert root.status_code == 200
+    assert root.json()["name"] == "AegisFire API"
 
 
 def test_events_endpoint_returns_attributed_firms_data() -> None:

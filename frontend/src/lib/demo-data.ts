@@ -17,7 +17,7 @@ const history = (
 export const DEMO_EVENTS: ThermalEvent[] = [
   {
     id: "evt-west-041",
-    shortId: "TW-2041",
+    shortId: "AF-2041",
     title: "West Coast Process Cluster",
     region: "Western industrial corridor",
     coordinates: [70.17, 22.35],
@@ -50,7 +50,7 @@ export const DEMO_EVENTS: ThermalEvent[] = [
         label: "Temporal recurrence",
         value: "71 active days / 90",
         impact: "positive",
-        source: "ThermalWatch persistence engine",
+        source: "AegisFire persistence engine",
       },
       {
         label: "FRP deviation",
@@ -69,7 +69,7 @@ export const DEMO_EVENTS: ThermalEvent[] = [
   },
   {
     id: "evt-forest-117",
-    shortId: "TW-2117",
+    shortId: "AF-2117",
     title: "Central Forest Sector",
     region: "Central India",
     coordinates: [80.96, 22.67],
@@ -108,7 +108,7 @@ export const DEMO_EVENTS: ThermalEvent[] = [
         label: "Cluster behavior",
         value: "Moving northeast",
         impact: "positive",
-        source: "ThermalWatch persistence engine",
+        source: "AegisFire persistence engine",
       },
       {
         label: "Cluster age",
@@ -121,7 +121,7 @@ export const DEMO_EVENTS: ThermalEvent[] = [
   },
   {
     id: "evt-crop-203",
-    shortId: "TW-2203",
+    shortId: "AF-2203",
     title: "Northern Crop Belt",
     region: "Punjab agricultural zone",
     coordinates: [75.41, 30.74],
@@ -154,7 +154,7 @@ export const DEMO_EVENTS: ThermalEvent[] = [
         label: "Spatial stability",
         value: "Low — dispersed detections",
         impact: "positive",
-        source: "ThermalWatch persistence engine",
+        source: "AegisFire persistence engine",
       },
       {
         label: "Industrial proximity",
@@ -167,7 +167,7 @@ export const DEMO_EVENTS: ThermalEvent[] = [
   },
   {
     id: "evt-coast-084",
-    shortId: "TW-2084",
+    shortId: "AF-2084",
     title: "Coastal Thermal Facility",
     region: "Eastern industrial coast",
     coordinates: [86.73, 21.04],
@@ -200,7 +200,7 @@ export const DEMO_EVENTS: ThermalEvent[] = [
         label: "Temporal recurrence",
         value: "78 active days / 90",
         impact: "positive",
-        source: "ThermalWatch persistence engine",
+        source: "AegisFire persistence engine",
       },
       {
         label: "FRP deviation",
@@ -213,7 +213,7 @@ export const DEMO_EVENTS: ThermalEvent[] = [
   },
   {
     id: "evt-unknown-017",
-    shortId: "TW-U017",
+    shortId: "AF-U017",
     title: "Unmapped Persistent Cluster U-17",
     region: "Deccan plateau",
     coordinates: [77.48, 17.62],
@@ -240,13 +240,13 @@ export const DEMO_EVENTS: ThermalEvent[] = [
         label: "Temporal recurrence",
         value: "66 active days / 90",
         impact: "positive",
-        source: "ThermalWatch persistence engine",
+        source: "AegisFire persistence engine",
       },
       {
         label: "Spatial stability",
         value: "180 m centroid spread",
         impact: "positive",
-        source: "ThermalWatch persistence engine",
+        source: "AegisFire persistence engine",
       },
       {
         label: "Mapped context",

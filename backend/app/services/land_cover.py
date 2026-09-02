@@ -123,7 +123,7 @@ def refresh_land_cover_contexts(
     with httpx.Client(
         timeout=settings.firms_request_timeout_seconds,
         follow_redirects=True,
-        headers={"User-Agent": "ThermalWatch-AI/0.1 NASA-GIBS-land-cover-client"},
+        headers={"User-Agent": "AegisFire/0.1 NASA-GIBS-land-cover-client"},
     ) as client:
         for (tile_x, tile_y), samples in positions.items():
             url = TILE_TEMPLATE.format(z=TILE_ZOOM, y=tile_y, x=tile_x)

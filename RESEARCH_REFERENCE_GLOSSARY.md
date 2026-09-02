@@ -1,4 +1,4 @@
-# ThermalWatch AI — Research, References, and Glossary
+# AegisFire — Research, References, and Glossary
 
 This file is the durable research notebook for the project. Verified facts, engineering assumptions, references, and difficult terms belong here.
 
@@ -181,11 +181,11 @@ A description of the physical material at Earth's surface, such as forest, cropl
 
 ### Categorical raster
 
-A pixel grid in which each stored value represents a named class rather than a continuously measured quantity. Interpolation is inappropriate for IGBP classes; ThermalWatch samples the nearest rendered category color at each event cell.
+A pixel grid in which each stored value represents a named class rather than a continuously measured quantity. Interpolation is inappropriate for IGBP classes; AegisFire samples the nearest rendered category color at each event cell.
 
 ### GIBS — Global Imagery Browse Services
 
-NASA EOSDIS services that expose many Earth-observation layers through tiled web-map interfaces such as WMTS. ThermalWatch uses GIBS for visual imagery and the annual MODIS IGBP context layer.
+NASA EOSDIS services that expose many Earth-observation layers through tiled web-map interfaces such as WMTS. AegisFire uses GIBS for visual imagery and the annual MODIS IGBP context layer.
 
 ### IGBP land-cover classification
 
@@ -193,7 +193,7 @@ The International Geosphere-Biosphere Programme class scheme included in MCD12Q1
 
 ### MCD12Q1
 
-The combined Terra and Aqua MODIS yearly global land-cover product used for the current annual contextual classification. ThermalWatch currently samples the Version 6.1 IGBP layer dated 2024-01-01.
+The combined Terra and Aqua MODIS yearly global land-cover product used for the current annual contextual classification. AegisFire currently samples the Version 6.1 IGBP layer dated 2024-01-01.
 
 ### Mixed pixel
 
@@ -229,7 +229,7 @@ A single point supplied or derived for an area feature such as a way or relation
 
 ### Review alert
 
-A deterministic prioritization record created when evidence crosses a configured threshold. In ThermalWatch, a review alert asks for analyst attention and never constitutes confirmation of a fire, accident, or responsible facility.
+A deterministic prioritization record created when evidence crosses a configured threshold. In AegisFire, a review alert asks for analyst attention and never constitutes confirmation of a fire, accident, or responsible facility.
 
 ### Robust z-score
 
@@ -243,7 +243,7 @@ A lookup structure that divides coordinates into fixed cells so nearby candidate
 
 A map-rendering technique that visually groups nearby point symbols based on their pixel distance at the current zoom. Expanding a cluster reveals the unchanged source coordinates; it does not alter, average, or relabel the underlying observations.
 
-Implementation update (2026-09-02, engineering decision): ThermalWatch now derives display buckets from MapLibre's active Web Mercator projection on every pan/zoom and draws them in a synchronized canvas overlay. The cluster center is a navigation centroid only; the underlying FIRMS longitude/latitude values are preserved and individual records are drawn at exact source coordinates at close zoom. This is an application behavior verified in the local browser, not a scientific inference about the observations.
+Implementation update (2026-09-02, engineering decision): AegisFire now derives display buckets from MapLibre's active Web Mercator projection on every pan/zoom and draws them in a synchronized canvas overlay. The cluster center is a navigation centroid only; the underlying FIRMS longitude/latitude values are preserved and individual records are drawn at exact source coordinates at close zoom. This is an application behavior verified in the local browser, not a scientific inference about the observations.
 
 ### Web Mercator
 

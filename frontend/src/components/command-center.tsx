@@ -740,7 +740,7 @@ export function CommandCenter() {
 
   const generateBrief = () => {
     const lines = [
-      `# ThermalWatch evidence brief — ${selectedEvent.shortId}`,
+      `# AegisFire evidence brief — ${selectedEvent.shortId}`,
       "",
       `Generated: ${new Date().toISOString()}`,
       `Classification: ${selectedEvent.classification} (${selectedEvent.confidence}% rules confidence)`,
@@ -766,7 +766,7 @@ export function CommandCenter() {
     const url = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/markdown" }));
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `thermalwatch-${selectedEvent.shortId.toLowerCase()}-brief.md`;
+    anchor.download = `aegisfire-${selectedEvent.shortId.toLowerCase()}-brief.md`;
     anchor.click();
     URL.revokeObjectURL(url);
   };
@@ -780,8 +780,7 @@ export function CommandCenter() {
           <div className="brand-mark"><Radar size={18} strokeWidth={2.2} /></div>
           <div className="min-w-0">
             <div className="flex items-baseline gap-2">
-              <span className="text-sm font-bold tracking-[-0.02em] text-white">THERMALWATCH</span>
-              <span className="text-[9px] font-semibold tracking-[0.22em] text-orange-400">AI</span>
+              <span className="text-sm font-bold tracking-[-0.02em] text-white">AEGISFIRE</span>
             </div>
             <p className="hidden text-[8px] uppercase tracking-[0.17em] text-slate-600 sm:block">Geospatial intelligence system</p>
           </div>

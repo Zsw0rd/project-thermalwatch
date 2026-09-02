@@ -1,6 +1,6 @@
-# ThermalWatch AI
+# AegisFire
 
-ThermalWatch AI is an explainable geospatial intelligence platform for distinguishing industrial thermal anomalies, persistent industrial heat, vegetation fires, agricultural burning, and uncertain sources.
+AegisFire is an explainable geospatial intelligence platform for distinguishing industrial thermal anomalies, persistent industrial heat, vegetation fires, agricultural burning, and uncertain sources.
 
 The current implementation is a web-first command center backed by an attributed NASA FIRMS snapshot, OpenStreetMap industrial context, and NASA MODIS IGBP annual land cover. It automatically falls back to an explicitly labeled deterministic simulation when the API is unavailable.
 

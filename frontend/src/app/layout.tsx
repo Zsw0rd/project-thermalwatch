@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "ThermalWatch AI — Geospatial Intelligence",
+  title: "AegisFire — Geospatial Intelligence",
   description:
     "Explainable intelligence for industrial fires and persistent thermal sources.",
 };

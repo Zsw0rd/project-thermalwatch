@@ -301,13 +301,13 @@ const adaptOperationalEvent = (event: ApiEvidenceEvent): ThermalEvent => {
         label: "Observed recurrence",
         value: `${event.active_days}/${event.observation_window_days} active days · ${event.cluster_sensor_count} sensor(s)`,
         impact: event.active_days >= 4 ? "positive" : "neutral",
-        source: "ThermalWatch temporal engine · NASA FIRMS 7-day snapshot",
+        source: "AegisFire temporal engine · NASA FIRMS 7-day snapshot",
       },
       {
         label: "Robust FRP baseline",
         value: `${event.baseline_frp_mw.toFixed(2)} MW median · MAD ${event.frp_mad_mw.toFixed(2)}`,
         impact: event.anomaly_status === "elevated" ? "positive" : "neutral",
-        source: "ThermalWatch rules_temporal_v2",
+        source: "AegisFire rules_temporal_v2",
       },
       {
         label: "Context status",
@@ -315,7 +315,7 @@ const adaptOperationalEvent = (event: ApiEvidenceEvent): ThermalEvent => {
           ? `${facility.facility_type.replaceAll("_", " ")} · ${facility.distance_m.toFixed(0)} m`
           : "No supported facility within 25 km",
         impact: industrialContext ? "positive" : "neutral",
-        source: facility ? "OpenStreetMap / Overpass snapshot" : "ThermalWatch OSM proximity scan",
+        source: facility ? "OpenStreetMap / Overpass snapshot" : "AegisFire OSM proximity scan",
       },
       ...(landCover
         ? [{
@@ -488,7 +488,7 @@ export async function fetchOperationalEvents(signal?: AbortSignal): Promise<Dash
     fetch(`${API_BASE_URL}/facility-monitors?limit=100`, { signal, cache: "no-store" }),
   ]);
   if (!eventResponse.ok) {
-    throw new Error(`ThermalWatch API returned ${eventResponse.status}`);
+    throw new Error(`AegisFire API returned ${eventResponse.status}`);
   }
   const body = (await eventResponse.json()) as ApiEventCollection;
   const historyBody: ApiEventCollection = historyResponse.ok
@@ -561,7 +561,7 @@ export async function updateAlertReview(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       status,
-      note: "Updated from the ThermalWatch analyst workspace",
+      note: "Updated from the AegisFire analyst workspace",
       reviewed_by: "web_analyst",
     }),
   });

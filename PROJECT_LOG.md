@@ -1,6 +1,6 @@
-# ThermalWatch AI — Project Log
+# AegisFire — Project Log
 
-This is the durable implementation record for ThermalWatch AI. It must be updated whenever the project is touched.
+This is the durable implementation record for AegisFire. It must be updated whenever the project is touched.
 
 ## Current status
 
@@ -13,7 +13,7 @@ This is the durable implementation record for ThermalWatch AI. It must be update
 
 ### Objective
 
-Turn the SIH26162 roadmap into a runnable, web-first ThermalWatch AI product and establish documentation that persists across future work.
+Turn the SIH26162 roadmap into a runnable, web-first AegisFire product and establish documentation that persists across future work.
 
 ### Areas touched
 
@@ -44,7 +44,7 @@ Turn the SIH26162 roadmap into a runnable, web-first ThermalWatch AI product and
 
 ### Objective
 
-Deliver the first runnable ThermalWatch AI web experience and establish the backend/container structure required for live geospatial pipelines.
+Deliver the first runnable AegisFire web experience and establish the backend/container structure required for live geospatial pipelines.
 
 ### Areas touched
 
@@ -347,7 +347,7 @@ Add an authoritative, keyless land-cover evidence channel to the operational pip
 ### Decisions and important implementation details
 
 - Added the official NASA EOSDIS GIBS `MODIS_Combined_L3_IGBP_Land_Cover_Type_Annual` raster, backed by the MCD12Q1.061 annual product, using the latest advertised complete layer date of 2024-01-01.
-- Implemented standard Web Mercator slippy-tile and pixel addressing at GIBS matrix zoom 8. The refresh service groups requested cells by tile, downloads each tile once, samples the official categorical RGB, and maps it back to an IGBP class and a conservative ThermalWatch context group.
+- Implemented standard Web Mercator slippy-tile and pixel addressing at GIBS matrix zoom 8. The refresh service groups requested cells by tile, downloads each tile once, samples the official categorical RGB, and maps it back to an IGBP class and a conservative AegisFire context group.
 - Sampled all 2,435 approximate thermal cells across 153 tiles and retained the attributed result as a deterministic offline JSON fixture. Cache-first refresh behavior allows later updates without making the judging flow depend on NASA availability.
 - Added `land_cover` to every normalized event while preserving provider, product, observation date, IGBP value, class label, native 500 m resolution, sampling method, and source URL. Cluster evidence and GeoJSON properties also expose the representative land-cover context.
 - Kept facility proximity first and persistent-unmapped recurrence second in classification precedence. Only remaining cropland and vegetation pixels become agricultural-burning or vegetation-fire candidates; the annual class is never presented as source or incident confirmation.
@@ -371,3 +371,43 @@ Add an authoritative, keyless land-cover evidence channel to the operational pip
 - The GIBS raster remains a live visual dependency, although all current event classifications retain their sampled offline context.
 - Agriculture and vegetation labels are weak candidate labels only. Measured precision/recall requires incident or expert-reviewed ground truth and spatially separated validation.
 - The next backend intelligence stage is a 30/90-day historical store and per-cell/per-facility seasonal baseline; the current seven-day feed is insufficient for learned normal-behavior claims.
+
+## 2026-09-02 — AegisFire repository-wide identity migration
+
+### Objective
+
+Rename the complete product and repository identity from its former name to `AegisFire` across the web experience, backend, runtime configuration, package metadata, documentation, exports, and GitHub repository.
+
+### Areas touched
+
+- web header, browser metadata, generated evidence-brief name/content, API error/source copy, demo evidence, and demo identifiers
+- FastAPI application/service identity, Python distribution metadata, package description, and outbound source-client user agents
+- Docker Compose project, PostgreSQL database/user/volume defaults, Alembic connection default, and environment template
+- repository instructions, README, original SIH roadmap, research/reference glossary, and this project log
+- GitHub repository name, description, origin URL, and existing pull request context
+
+### Decisions and important implementation details
+
+- `AegisFire` is the exact product display name; `AEGISFIRE` is used only for the compact uppercase masthead.
+- Machine-readable package and service identifiers use `aegisfire-api` and `aegisfire-web`; Python-generated metadata moved to `aegisfire_api.egg-info`.
+- Demo intelligence identifiers moved from the former product prefix to `AF-*`. NASA FIRMS-derived `NF-*` display IDs and domain terms such as `thermal_events` remain unchanged because they describe their data rather than the old brand.
+- Docker Compose now has the explicit project name `aegisfire` and fresh defaults for the database, role, password, connection URL, and `aegisfire_postgres` volume.
+- Existing databases and the earlier named Docker volume are not deleted. Explicit environment values continue to override the new defaults, allowing a deliberate migration instead of destructive implicit data movement.
+- Historical implementation entries retain their technical chronology while using the current product name consistently. Research claims and citations were not otherwise changed by the rename.
+
+### Verification performed and result
+
+- Repository-wide case-insensitive search found no remaining former-name or former-package identifiers in tracked source, configuration, documentation, or fixtures.
+- Reinstalled the editable backend distribution successfully as `aegisfire-api==0.1.0` and removed the obsolete distribution entry from the local virtual environment.
+- `.venv\Scripts\python.exe -m ruff check app tests alembic` — passed.
+- `.venv\Scripts\python.exe -m pytest -q` — 17 tests passed, including explicit AegisFire health/API identity checks; one upstream Starlette TestClient deprecation warning remains.
+- `npm run lint` — passed under the `aegisfire-web` package identity.
+- `npm run build` — passed with TypeScript and static generation.
+- `docker compose config --quiet` — passed with the renamed project/database defaults.
+- Live browser QA — page title `AegisFire — Geospatial Intelligence`, masthead `AEGISFIRE`, operational NASA FIRMS mode restored after reload, no former name visible in the page, and no map error.
+
+### Known limitations / next concrete task
+
+- Deployments with an existing explicit `DATABASE_URL` or PostgreSQL environment retain those values until an operator elects to migrate them.
+- The active local checkout directory is not moved while the desktop task and development servers are using it; the repository, application, packages, runtime defaults, and remote identity are renamed.
+- Continue with the planned 30/90-day archival and seasonal-baseline stage under the AegisFire identity.
