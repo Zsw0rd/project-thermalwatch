@@ -13,6 +13,7 @@ type ThermalMapProps = {
   facilities?: IndustrialFacility[];
   showGrid?: boolean;
   showSatellite?: boolean;
+  showLandCover?: boolean;
   focusNonce?: number;
 };
 
@@ -25,6 +26,8 @@ type CanvasThermalMarker = {
 };
 
 const NASA_IMAGERY_DATE = "2026-09-01";
+const MODIS_LAND_COVER_DATE = "2024-01-01";
+const MODIS_LAND_COVER_LAYER = "MODIS_Combined_L3_IGBP_Land_Cover_Type_Annual";
 const BASE_MAP_STYLE: maplibregl.StyleSpecification = {
   version: 8,
   sources: {
@@ -86,6 +89,7 @@ export function ThermalMap({
   facilities = [],
   showGrid = true,
   showSatellite = true,
+  showLandCover = false,
   focusNonce = 0,
 }: ThermalMapProps) {
   const isOperational = events.some((event) => event.dataOrigin === "nasa-firms");
@@ -221,6 +225,35 @@ export function ThermalMap({
 
     if (mapReady) applyImagery();
   }, [mapReady, showSatellite]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+
+    if (!map.getSource("nasa-modis-land-cover")) {
+      map.addSource("nasa-modis-land-cover", {
+        type: "raster",
+        tiles: [
+          `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/${MODIS_LAND_COVER_LAYER}/default/${MODIS_LAND_COVER_DATE}/GoogleMapsCompatible_Level8/{z}/{y}/{x}.png`,
+        ],
+        tileSize: 256,
+        maxzoom: 8,
+        attribution: "NASA EOSDIS GIBS · MCD12Q1.061 MODIS IGBP 2024",
+      });
+      map.addLayer({
+        id: "nasa-modis-land-cover-layer",
+        type: "raster",
+        source: "nasa-modis-land-cover",
+        paint: {
+          "raster-opacity": 0.58,
+          "raster-fade-duration": 0,
+        },
+      });
+    }
+    const visibility = showLandCover ? "visible" : "none";
+    map.setLayoutProperty("nasa-modis-land-cover-layer", "visibility", visibility);
+    containerRef.current?.setAttribute("data-land-cover-layer", visibility);
+  }, [mapReady, showLandCover]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -620,6 +653,16 @@ export function ThermalMap({
       <div className="coordinate-readout">
         <span ref={coordinateReadoutRef}>Z — · cursor coordinates</span>
       </div>
+      {showLandCover && (
+        <div className="land-cover-legend" aria-label="MODIS IGBP land-cover legend">
+          <strong>MODIS IGBP · 2024</strong>
+          <span><i style={{ background: "#31cc31" }} /> Forest</span>
+          <span><i style={{ background: "#faef73" }} /> Cropland</span>
+          <span><i style={{ background: "#ff0000" }} /> Built-up</span>
+          <span><i style={{ background: "#bfbfbd" }} /> Barren</span>
+          <span><i style={{ background: "#86cae3" }} /> Water</span>
+        </div>
+      )}
       <div className="map-legend">
         {Object.entries(CLASS_META).map(([key, item]) => (
           <span key={key} className="flex items-center gap-2 whitespace-nowrap">

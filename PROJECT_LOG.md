@@ -4,7 +4,7 @@ This is the durable implementation record for ThermalWatch AI. It must be update
 
 ## Current status
 
-- **Stage:** Operational snapshot MVP with NASA FIRMS + OSM context; land cover and historical baselines pending
+- **Stage:** Operational snapshot MVP with NASA FIRMS + OSM + MODIS IGBP context; long-term baselines and measured evaluation pending
 - **Primary deliverable:** Explainable geospatial intelligence web dashboard
 - **Data mode:** API-first attributed source snapshots with automatic deterministic simulation fallback
 - **Architecture:** Next.js web client, FastAPI service, PostgreSQL/PostGIS, Python geospatial and tabular ML pipeline
@@ -325,4 +325,49 @@ Complete three additional roadmap stages as functional web workflows: facility-c
 - Facility association still uses representative-point proximity, not facility polygon containment. A mapped nearby feature can be unrelated to an observation.
 - The retained seven-day window supports demonstration playback, not seasonal analysis. Scheduled archival ingestion is required for 30/90-day playback and learned baselines.
 - Playback is observation timing, not a fire-spread model. Cluster evolution metrics need validated spatial clustering before area-growth claims are introduced.
-- Role-based access, analyst notes UI, notification delivery, land-cover enrichment, and measured model evaluation remain future stages.
+- **Superseded:** land-cover enrichment was pending at this checkpoint and is implemented in the next entry. Role-based access, analyst notes UI, notification delivery, and measured model evaluation remain future stages.
+
+## 2026-09-02 — MODIS land-cover intelligence stage
+
+### Objective
+
+Add an authoritative, keyless land-cover evidence channel to the operational pipeline so vegetation and agricultural candidates are explainable, visible on the map, and available offline.
+
+### Areas touched
+
+- `backend/app/services/land_cover.py`
+- `backend/app/services/firms.py`
+- `backend/app/api/events.py`
+- `backend/app/schemas/events.py`
+- `backend/data/samples/modis_igbp_land_cover_2024.json`
+- backend dependencies and API tests
+- frontend event contracts/adapters, map layer, evidence panel data, source registry, controls, and styles
+- research/reference glossary and this project log
+
+### Decisions and important implementation details
+
+- Added the official NASA EOSDIS GIBS `MODIS_Combined_L3_IGBP_Land_Cover_Type_Annual` raster, backed by the MCD12Q1.061 annual product, using the latest advertised complete layer date of 2024-01-01.
+- Implemented standard Web Mercator slippy-tile and pixel addressing at GIBS matrix zoom 8. The refresh service groups requested cells by tile, downloads each tile once, samples the official categorical RGB, and maps it back to an IGBP class and a conservative ThermalWatch context group.
+- Sampled all 2,435 approximate thermal cells across 153 tiles and retained the attributed result as a deterministic offline JSON fixture. Cache-first refresh behavior allows later updates without making the judging flow depend on NASA availability.
+- Added `land_cover` to every normalized event while preserving provider, product, observation date, IGBP value, class label, native 500 m resolution, sampling method, and source URL. Cluster evidence and GeoJSON properties also expose the representative land-cover context.
+- Kept facility proximity first and persistent-unmapped recurrence second in classification precedence. Only remaining cropland and vegetation pixels become agricultural-burning or vegetation-fire candidates; the annual class is never presented as source or incident confirmation.
+- Added an API source registry entry, a dedicated `/api/v1/land-cover/source` metadata surface, and a bounded `/api/v1/ingestion/land-cover/refresh` operation that invalidates the normalized event cache after refresh.
+- Added an enabled-by-default MODIS raster overlay, visible compact legend, independent land-cover toggle, source-registry card, event search by land-cover class, and per-event evidence item. The layer sits beneath the synchronized hotspot/grid canvas, so classification context does not hide exact detections.
+
+### Verification
+
+- Full enrichment result: 4,143 observations with land-cover context across 2,435 cells; classifications are 1,816 vegetation, 1,473 agricultural, 706 industrial, and 148 unknown.
+- Land-cover groups in the source evidence are 2,114 vegetation, 1,648 cropland, 293 built-up, 65 barren, and 23 water observations.
+- `ruff check app tests` — passed.
+- `pytest -q` — 17 tests passed, including source attribution, feature-version, metadata endpoint, and a known Web Mercator tile/pixel position; one upstream Starlette TestClient deprecation warning remains.
+- `npm run lint` — passed.
+- `npm run build` — passed with TypeScript and static page generation.
+- Live browser QA — 759 current-window detections rendered as 30 visible national-view groups; grid, satellite imagery, MODIS overlay, land-cover legend, category counts, and evidence classifications were visible; no map error was reported.
+- Toggle QA — hiding land cover changed the raster visibility to `none` and removed the legend; enabling it restored both. The source workspace displayed all five evidence channels and the updated limitations.
+
+### Known limitations / next concrete task
+
+- The land-cover evidence is annual 2024 context at nominal 500 m resolution, while the retained thermal observations are from 2026. It can be stale, class boundaries can contain mixed pixels, and rendered color sampling is less direct than reading the source science raster.
+- The GIBS raster remains a live visual dependency, although all current event classifications retain their sampled offline context.
+- Agriculture and vegetation labels are weak candidate labels only. Measured precision/recall requires incident or expert-reviewed ground truth and spatially separated validation.
+- The next backend intelligence stage is a 30/90-day historical store and per-cell/per-facility seasonal baseline; the current seven-day feed is insufficient for learned normal-behavior claims.

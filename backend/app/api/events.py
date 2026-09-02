@@ -16,6 +16,7 @@ from app.schemas.events import (
     ConfidenceLabel,
     EventCategory,
     EventCollection,
+    LandCoverRefreshResponse,
     NormalizedThermalEvent,
     PersistenceResponse,
     PlaybackCollection,
@@ -37,6 +38,19 @@ from app.services.firms import (
     invalidate_event_cache,
     load_events,
     refresh_source_files,
+)
+from app.services.land_cover import (
+    LAYER_ID,
+    OBSERVATION_DATE,
+    land_cover_cell_key,
+    load_land_cover_contexts,
+    refresh_land_cover_contexts,
+)
+from app.services.land_cover import (
+    SOURCE_URL as LAND_COVER_SOURCE_URL,
+)
+from app.services.land_cover import (
+    TILE_TEMPLATE as LAND_COVER_TILE_TEMPLATE,
 )
 from app.services.osm import load_facilities, refresh_facilities
 from app.services.persistence import persist_current_snapshot
@@ -135,7 +149,8 @@ async def list_events(
         scope_limitations=[
             "Bounding-box filtering is not a precise India administrative-boundary join.",
             "FIRMS reports thermal anomalies, not confirmed fires or industrial incidents.",
-            "OSM proximity and seven-day recurrence are applied; land cover is not yet applied.",
+            "OSM proximity, MODIS IGBP land cover, and seven-day recurrence are applied.",
+            "The annual 2024 land-cover class is contextual evidence, not a contemporaneous observation or confirmation of the thermal source.",
             "Seven-day baselines rank candidates but are not learned long-term facility baselines.",
         ],
         total=len(all_events),
@@ -175,6 +190,12 @@ async def events_geojson(
                     "confidence": event.confidence,
                     "classification": event.classification,
                     "cluster_id": event.cluster_id,
+                    "land_cover_class": (
+                        event.land_cover.class_label if event.land_cover else None
+                    ),
+                    "land_cover_group": (
+                        event.land_cover.group if event.land_cover else None
+                    ),
                 },
             }
             for event in events
@@ -283,6 +304,34 @@ async def sources() -> dict[str, object]:
         "authenticated_area_api_configured": bool(settings.firms_map_key),
         "fallback": "Official public South Asia seven-day VIIRS CSV feeds",
         "attribution_required": True,
+        "land_cover": {
+            "provider": "NASA EOSDIS GIBS",
+            "product": "MCD12Q1.061 MODIS IGBP annual land cover",
+            "layer_id": LAYER_ID,
+            "observation_date": OBSERVATION_DATE,
+            "sampled_cells": len(load_land_cover_contexts(settings)),
+            "source_url": LAND_COVER_SOURCE_URL,
+            "classification_use": "contextual likelihood feature only",
+        },
+    }
+
+
+@router.get("/land-cover/source", tags=["system"])
+async def land_cover_source() -> dict[str, object]:
+    contexts = load_land_cover_contexts()
+    return {
+        "provider": "NASA EOSDIS GIBS",
+        "product": "MCD12Q1.061 MODIS IGBP annual land cover",
+        "layer_id": LAYER_ID,
+        "observation_date": OBSERVATION_DATE,
+        "sampled_cells": len(contexts),
+        "source_url": LAND_COVER_SOURCE_URL,
+        "tile_template": LAND_COVER_TILE_TEMPLATE,
+        "classification_use": "contextual likelihood feature only",
+        "limitation": (
+            "Annual 500 m categorical land cover is not contemporaneous source "
+            "confirmation and can be mixed at class boundaries."
+        ),
     }
 
 
@@ -348,6 +397,33 @@ async def refresh_osm() -> FacilityRefreshResponse:
         raise HTTPException(
             status_code=502,
             detail=f"OpenStreetMap Overpass refresh failed: {type(exc).__name__}",
+        ) from exc
+
+
+@router.post(
+    "/ingestion/land-cover/refresh",
+    response_model=LandCoverRefreshResponse,
+    tags=["ingestion"],
+)
+async def refresh_land_cover() -> LandCoverRefreshResponse:
+    try:
+        coordinates = {
+            land_cover_cell_key(event.latitude, event.longitude): (
+                event.latitude,
+                event.longitude,
+            )
+            for event in load_events()
+        }
+        response = await run_in_threadpool(
+            refresh_land_cover_contexts,
+            coordinates,
+        )
+        invalidate_event_cache()
+        return response
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"NASA GIBS land-cover refresh failed: {type(exc).__name__}",
         ) from exc
 
 

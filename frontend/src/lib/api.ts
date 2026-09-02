@@ -58,6 +58,17 @@ type ApiEvidenceEvent = {
     operator: string | null;
     source: "OpenStreetMap";
   } | null;
+  land_cover: {
+    provider: "NASA EOSDIS GIBS";
+    product: "MCD12Q1.061 MODIS IGBP annual land cover";
+    observation_date: string;
+    igbp_values: number[];
+    class_label: string;
+    group: "vegetation" | "cropland" | "built_up" | "barren" | "water" | "snow_ice" | "unclassified";
+    native_resolution_m: number;
+    sampling_method: string;
+    source_url: string;
+  } | null;
   source_attribution: {
     provider: string;
     product: string;
@@ -227,6 +238,7 @@ const adaptOperationalEvent = (event: ApiEvidenceEvent): ThermalEvent => {
   const confidence = Math.round(event.classification_confidence * 100);
   const facility = event.nearest_facility;
   const industrialContext = event.category === "industrial" && facility;
+  const landCover = event.land_cover;
 
   return {
     id: event.id,
@@ -269,7 +281,9 @@ const adaptOperationalEvent = (event: ApiEvidenceEvent): ThermalEvent => {
     isNew: event.active_days === 1,
     summary: industrialContext
       ? `NASA FIRMS detected a thermal anomaly near a mapped ${facility.facility_type.replaceAll("_", " ")}. Seven-day recurrence and robust FRP deviation are included, but proximity does not confirm a fire or incident.`
-      : "NASA FIRMS detected a thermal anomaly. The result combines sensor confidence, OSM proximity, and seven-day recurrence; land cover and incident confirmation are not yet available.",
+      : landCover
+        ? `NASA FIRMS detected a thermal anomaly over ${landCover.class_label.toLowerCase()}. Annual MODIS land cover and seven-day recurrence support a candidate classification, not incident confirmation.`
+        : "NASA FIRMS detected a thermal anomaly. The result combines sensor confidence, OSM proximity, and seven-day recurrence; incident confirmation is not available.",
     evidence: [
       {
         label: "FIRMS confidence",
@@ -303,6 +317,14 @@ const adaptOperationalEvent = (event: ApiEvidenceEvent): ThermalEvent => {
         impact: industrialContext ? "positive" : "neutral",
         source: facility ? "OpenStreetMap / Overpass snapshot" : "ThermalWatch OSM proximity scan",
       },
+      ...(landCover
+        ? [{
+            label: "Land-cover context",
+            value: `${landCover.class_label} · ${landCover.observation_date.slice(0, 4)}`,
+            impact: landCover.group === "cropland" || landCover.group === "vegetation" ? "positive" as const : "neutral" as const,
+            source: `${landCover.provider} · ${landCover.product}`,
+          }]
+        : []),
     ],
     history: event.temporal_history.length
       ? event.temporal_history.map((point) => ({
@@ -322,6 +344,19 @@ const adaptOperationalEvent = (event: ApiEvidenceEvent): ThermalEvent => {
     anomalyScore: event.anomaly_score ?? undefined,
     modelVersion: event.model_version,
     featureVersion: event.feature_version,
+    landCover: landCover
+      ? {
+          provider: landCover.provider,
+          product: landCover.product,
+          observationDate: landCover.observation_date,
+          igbpValues: landCover.igbp_values,
+          classLabel: landCover.class_label,
+          group: landCover.group,
+          nativeResolutionM: landCover.native_resolution_m,
+          samplingMethod: landCover.sampling_method,
+          sourceUrl: landCover.source_url,
+        }
+      : undefined,
   };
 };
 

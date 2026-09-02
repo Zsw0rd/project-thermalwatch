@@ -30,6 +30,9 @@ This file is the durable research notebook for the project. Verified facts, engi
 - [S-NPP South Asia seven-day CSV](https://firms.modaps.eosdis.nasa.gov/data/active_fire/suomi-npp-viirs-c2/csv/SUOMI_VIIRS_C2_South_Asia_7d.csv) — checked-in temporal snapshot source.
 - [NASA GIBS WMTS dataset](https://data.nasa.gov/dataset/gibs-web-map-tile-service-wmts) — standards-based imagery tile service used for the optional satellite map context.
 - [FIRMS GIBS integration guide](https://firms.modaps.eosdis.nasa.gov/content/tutorials/gibs/) — NASA guidance connecting FIRMS workflows with GIBS imagery and thermal-anomaly layers.
+- [MCD12Q1.061 MODIS Terra+Aqua yearly land cover](https://data.nasa.gov/dataset/modis-terraaqua-land-cover-type-yearly-l3-global-500m-sin-grid-v061-fac3a) — official description of the yearly global 500 m land-cover product and its IGBP classification scheme.
+- [NASA GIBS MODIS IGBP layer metadata](https://gibs.earthdata.nasa.gov/layer-metadata/v1.0/MODIS_Combined_L3_IGBP_Land_Cover_Type_Annual.json) — machine-readable source metadata for the annual raster exposed in the web map and sampled by the enrichment service.
+- [NASA GIBS MODIS IGBP color map](https://gibs.earthdata.nasa.gov/colormaps/v1.3/output/MODIS_IGBP_Land_Cover_Type.html) — authoritative categorical color-to-class legend used to interpret sampled raster pixels.
 
 ### Industrial context
 
@@ -65,6 +68,16 @@ This file is the durable research notebook for the project. Verified facts, engi
 - A median/MAD deviation is only calculated for cells with at least five observations and MAD of at least 0.1 MW. “Elevated” currently means robust z-score of at least 3 plus at least 5 MW above the median. These are conservative engineering thresholds requiring empirical validation.
 - The current baseline is an observed seven-day distribution, not a learned facility operating baseline. It is useful for candidate ranking, but cannot establish that behavior is abnormal in a seasonal or operational sense.
 
+## 2026-09-02 MODIS land-cover source research and observed enrichment
+
+- NASA describes MCD12Q1.061 as a yearly global 500 m product containing multiple land-cover schemes, including the International Geosphere-Biosphere Programme classification used here. [MCD12Q1.061 product record](https://data.nasa.gov/dataset/modis-terraaqua-land-cover-type-yearly-l3-global-500m-sin-grid-v061-fac3a)
+- The official GIBS Web Mercator capabilities advertised `MODIS_Combined_L3_IGBP_Land_Cover_Type_Annual` with 2024-01-01 as the default/latest complete date at verification time and `GoogleMapsCompatible_Level8` as its maximum named tile matrix. This is a verified service property on 2026-09-02, not a promise that 2024 will remain the latest date. [GIBS layer metadata](https://gibs.earthdata.nasa.gov/layer-metadata/v1.0/MODIS_Combined_L3_IGBP_Land_Cover_Type_Annual.json)
+- Direct pixel checks using standard Web Mercator addressing returned expected categorical colors: Mumbai and Delhi sampled as urban/built-up, a Western Ghats test coordinate as evergreen broadleaf forest, a Thar coordinate as open shrubland, and a Bengal coordinate as cropland. These checks validate addressing and color interpretation; they are not an accuracy assessment of MCD12Q1.
+- The retained enrichment sampled 2,435 approximate thermal cells from 153 GIBS tiles. All 4,143 current FIRMS observations received a context because repeated observations share the same rounded two-decimal analytical cell.
+- **Engineering assumption:** IGBP classes 1–11 are grouped as vegetation context, 12 and 14 as cropland, 13 as built-up, 15 as snow/ice, 16 as barren, and 0/17 as water. These groupings support candidate routing and must not be interpreted as physical source confirmation.
+- **Engineering assumption:** land cover is applied only after conservative mapped-facility and high-recurrence rules. This precedence protects stronger evidence from being overwritten by an annual surface class.
+- The MCD12Q1 product record cautions that training-sample changes affect post-2021 continuity. The 2024 categorical layer should therefore be treated as current context rather than a directly comparable long-run trend without additional validation. [MCD12Q1.061 product record](https://data.nasa.gov/dataset/modis-terraaqua-land-cover-type-yearly-l3-global-500m-sin-grid-v061-fac3a)
+
 ### Web and geospatial platform
 
 - [Next.js App Router](https://nextjs.org/docs/app) — web application routing and rendering model.
@@ -80,6 +93,7 @@ These values are starting points and must be validated with real data:
 - VIIRS 375 m is the primary MVP thermal source; MODIS is a later secondary source.
 - Spatial recurrence will initially be evaluated within approximately 0.5–1.0 km, then tuned by sensor and validation region.
 - The MVP taxonomy is `industrial`, `vegetation`, and `uncertain`; the UI can demonstrate more descriptive evidence-backed subtypes.
+- **Superseded for operational API mode:** the operational taxonomy now includes `industrial`, `vegetation`, `agricultural`, and `unknown`. Vegetation/agricultural values remain weak candidate labels derived partly from annual MODIS IGBP context, not ground truth.
 - Persistence combines recurrence, active days, spatial stability, and day/night consistency. Exact weights remain configurable.
 - A deterministic cached dataset is part of the product, not temporary mock scaffolding, because it is required for a failure-safe demo.
 - Current facility names and event outputs are fictionalized simulation scenarios. They validate product behavior but must never be cited as real detections or model performance.
@@ -164,6 +178,26 @@ A sequence of UTC-date frames showing when retained FIRMS observations were acqu
 ### Land cover
 
 A description of the physical material at Earth's surface, such as forest, cropland, water, built-up area, or bare land.
+
+### Categorical raster
+
+A pixel grid in which each stored value represents a named class rather than a continuously measured quantity. Interpolation is inappropriate for IGBP classes; ThermalWatch samples the nearest rendered category color at each event cell.
+
+### GIBS — Global Imagery Browse Services
+
+NASA EOSDIS services that expose many Earth-observation layers through tiled web-map interfaces such as WMTS. ThermalWatch uses GIBS for visual imagery and the annual MODIS IGBP context layer.
+
+### IGBP land-cover classification
+
+The International Geosphere-Biosphere Programme class scheme included in MCD12Q1, covering categories such as forests, shrublands, savannas, grasslands, wetlands, croplands, built-up land, snow/ice, barren land, and water.
+
+### MCD12Q1
+
+The combined Terra and Aqua MODIS yearly global land-cover product used for the current annual contextual classification. ThermalWatch currently samples the Version 6.1 IGBP layer dated 2024-01-01.
+
+### Mixed pixel
+
+A raster pixel whose footprint contains more than one real-world surface type. A single categorical class can simplify that mixture, especially near coasts, fields, settlements, and other boundaries.
 
 ### MAD — Median Absolute Deviation
 

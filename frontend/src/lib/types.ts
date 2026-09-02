@@ -19,6 +19,25 @@ export type EvidenceItem = {
   source: string;
 };
 
+export type LandCoverContext = {
+  provider: "NASA EOSDIS GIBS";
+  product: "MCD12Q1.061 MODIS IGBP annual land cover";
+  observationDate: string;
+  igbpValues: number[];
+  classLabel: string;
+  group:
+    | "vegetation"
+    | "cropland"
+    | "built_up"
+    | "barren"
+    | "water"
+    | "snow_ice"
+    | "unclassified";
+  nativeResolutionM: number;
+  samplingMethod: string;
+  sourceUrl: string;
+};
+
 export type ThermalEvent = {
   id: string;
   shortId: string;
@@ -54,6 +73,7 @@ export type ThermalEvent = {
   anomalyScore?: number;
   modelVersion?: string;
   featureVersion?: string;
+  landCover?: LandCoverContext;
 };
 
 export type IndustrialFacility = {

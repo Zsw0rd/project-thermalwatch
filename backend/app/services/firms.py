@@ -19,10 +19,16 @@ from app.schemas.events import (
     AlertPreview,
     AnalyticsSummary,
     ConfidenceLabel,
+    LandCoverContext,
     NormalizedThermalEvent,
     RefreshResponse,
     SourceAttribution,
     TemporalHistoryPoint,
+)
+from app.services.land_cover import (
+    land_cover_cell_key,
+    land_cover_source_path,
+    load_land_cover_contexts,
 )
 from app.services.osm import build_facility_index, load_facilities, nearest_facility
 
@@ -355,6 +361,7 @@ def _build_events(settings: Settings) -> list[NormalizedThermalEvent]:
     raw_events = _read_raw_events(settings)
     facilities = load_facilities(settings)
     facility_index = build_facility_index(facilities)
+    land_cover_contexts = load_land_cover_contexts(settings)
     clusters: dict[str, list[dict[str, object]]] = defaultdict(list)
     for row in raw_events:
         clusters[str(row["cluster_key"])].append(row)
@@ -440,6 +447,9 @@ def _build_events(settings: Settings) -> list[NormalizedThermalEvent]:
             facilities,
             facility_index=facility_index,
         )
+        land_cover_context: LandCoverContext | None = land_cover_contexts.get(
+            land_cover_cell_key(float(row["latitude"]), float(row["longitude"]))
+        )
         industrial_threshold_m = None
         if facility_context:
             industrial_threshold_m = (
@@ -468,6 +478,20 @@ def _build_events(settings: Settings) -> list[NormalizedThermalEvent]:
             classification = "Persistent unmapped thermal source candidate"
             classification_confidence = min(0.91, base_confidence + 0.14)
             category = "unknown"
+        elif land_cover_context and land_cover_context.group == "cropland":
+            classification = "Agricultural-burning candidate over MODIS cropland"
+            classification_confidence = min(
+                0.92,
+                base_confidence + 0.10 + (0.05 if sensor_count >= 2 else 0),
+            )
+            category = "agricultural"
+        elif land_cover_context and land_cover_context.group == "vegetation":
+            classification = "Vegetation-fire candidate over MODIS land cover"
+            classification_confidence = min(
+                0.92,
+                base_confidence + 0.10 + (0.05 if sensor_count >= 2 else 0),
+            )
+            category = "vegetation"
         elif sensor_count >= 2:
             classification = "Multi-sensor thermal anomaly"
             classification_confidence = min(0.95, base_confidence + 0.12)
@@ -500,7 +524,16 @@ def _build_events(settings: Settings) -> list[NormalizedThermalEvent]:
             explanation.append(
                 "FRP is elevated relative to the cluster's seven-day median/MAD baseline"
             )
-        explanation.append("Land-cover context has not yet been applied")
+        if land_cover_context:
+            explanation.append(
+                "NASA MODIS IGBP land cover: "
+                f"{land_cover_context.class_label} ({land_cover_context.observation_date})"
+            )
+            explanation.append(
+                "Annual land cover is contextual evidence and does not confirm the anomaly source"
+            )
+        else:
+            explanation.append("Land-cover context is unavailable for this thermal cell")
 
         events.append(
             NormalizedThermalEvent(
@@ -537,11 +570,12 @@ def _build_events(settings: Settings) -> list[NormalizedThermalEvent]:
                 severity=_severity(float(row["frp_mw"]), row["confidence"]),
                 explanation=explanation,
                 context_status=(
-                    "FIRMS_OSM_AND_7D_TEMPORAL_NO_LAND_COVER"
-                    if facilities
-                    else "FIRMS_AND_7D_TEMPORAL_NO_OSM_OR_LAND_COVER"
+                    "FIRMS_OSM_MODIS_IGBP_AND_7D_TEMPORAL"
+                    if facilities and land_cover_contexts
+                    else "FIRMS_AND_7D_TEMPORAL_PARTIAL_CONTEXT"
                 ),
                 nearest_facility=facility_context,
+                land_cover=land_cover_context,
                 source_attribution=SourceAttribution(
                     provider="NASA FIRMS",
                     product=str(row["source"]),
@@ -560,6 +594,9 @@ def load_events(settings: Settings | None = None) -> list[NormalizedThermalEvent
     global _cache_signature, _events_cache
     settings = settings or get_settings()
     files = _active_files(settings)
+    land_cover_path = land_cover_source_path(settings)
+    if land_cover_path:
+        files = [*files, land_cover_path]
     current_signature = _signature(files)
     with _cache_lock:
         if _events_cache is None or _cache_signature != current_signature:

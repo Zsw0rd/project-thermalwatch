@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.services.land_cover import slippy_tile_position
 
 client = TestClient(app)
 
@@ -21,7 +22,24 @@ def test_events_endpoint_returns_attributed_firms_data() -> None:
     assert body["total"] >= body["returned"] > 0
     assert len(body["events"]) == 5
     assert body["events"][0]["source_attribution"]["provider"] == "NASA FIRMS"
+    assert body["events"][0]["land_cover"]["provider"] == "NASA EOSDIS GIBS"
+    assert body["events"][0]["feature_version"] == "firms_osm_modis_igbp_temporal_7d_v2"
     assert "raw_payload" not in body["events"][0]
+
+
+def test_land_cover_source_is_attributed_and_sampled() -> None:
+    response = client.get("/api/v1/land-cover/source")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["provider"] == "NASA EOSDIS GIBS"
+    assert payload["layer_id"] == "MODIS_Combined_L3_IGBP_Land_Cover_Type_Annual"
+    assert payload["observation_date"] == "2024-01-01"
+    assert payload["sampled_cells"] > 2_000
+    assert "not contemporaneous" in payload["limitation"].lower()
+
+
+def test_land_cover_pixel_lookup_uses_standard_web_mercator_position() -> None:
+    assert slippy_tile_position(19.076, 72.878) == (179, 114, 211, 45)
 
 
 def test_event_filters_and_geojson() -> None:
@@ -33,6 +51,7 @@ def test_event_filters_and_geojson() -> None:
     assert geojson.status_code == 200
     assert geojson.json()["type"] == "FeatureCollection"
     assert len(geojson.json()["features"]) <= 10
+    assert geojson.json()["features"][0]["properties"]["land_cover_class"]
 
 
 def test_invalid_bbox_is_rejected() -> None:

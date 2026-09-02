@@ -2,7 +2,7 @@
 
 ThermalWatch AI is an explainable geospatial intelligence platform for distinguishing industrial thermal anomalies, persistent industrial heat, vegetation fires, agricultural burning, and uncertain sources.
 
-The current implementation is a web-first command center backed by an attributed NASA FIRMS snapshot and OpenStreetMap industrial context. It automatically falls back to an explicitly labeled deterministic simulation when the API is unavailable.
+The current implementation is a web-first command center backed by an attributed NASA FIRMS snapshot, OpenStreetMap industrial context, and NASA MODIS IGBP annual land cover. It automatically falls back to an explicitly labeled deterministic simulation when the API is unavailable.
 
 ## Quick start — API and web
 
@@ -48,7 +48,8 @@ docker compose up --build
 - `GET /api/v1/analytics/summary` — snapshot statistics;
 - `GET /api/v1/analytics/dashboard` — temporal activity and persistence analytics;
 - `GET /api/v1/playback` — cumulative daily observation frames;
-- `POST /api/v1/ingestion/firms/refresh` and `/osm/refresh` — refresh local caches;
+- `GET /api/v1/land-cover/source` — MODIS IGBP source metadata and limitations;
+- `POST /api/v1/ingestion/firms/refresh`, `/osm/refresh`, and `/land-cover/refresh` — refresh local caches;
 - `POST /api/v1/ingestion/persist` — upsert the current snapshot into PostGIS.
 
 ## Current capabilities
@@ -57,6 +58,7 @@ docker compose up --build
 - API-first NASA FIRMS snapshot mode with a deterministic simulation fallback;
 - normalized NOAA-20, NOAA-21, and S-NPP VIIRS data with raw fields preserved server-side;
 - OpenStreetMap proximity context for refineries, flares, power plants, steelmaking sites, and quarries;
+- 2024 MCD12Q1.061 MODIS IGBP context sampled for every retained thermal cell, with an attributed map overlay and deterministic offline fixture;
 - conservative evidence-backed triage and one review alert per approximate 1 km grid cell;
 - seven-day active-day recurrence, spatial stability, multi-sensor support, and median/MAD anomaly features;
 - category and text filtering;
@@ -66,6 +68,7 @@ docker compose up --build
 - persisted local alert lifecycle for acknowledgement, investigation, closure, and reopening;
 - event selection, temporal evidence drill-down, and downloadable Markdown evidence briefs;
 - FRP, confidence, co-observation, and facility evidence;
+- evidence-backed vegetation and agricultural candidates that retain the exact annual land-cover class and never claim incident confirmation;
 - visible source attribution and safety labeling;
 - responsive intelligence drawer on smaller screens;
 - Alembic/PostGIS schema and batched snapshot persistence.

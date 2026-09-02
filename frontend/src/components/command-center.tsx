@@ -29,6 +29,7 @@ import {
   SlidersHorizontal,
   Sparkles,
   Target,
+  Trees,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -525,6 +526,12 @@ function SourcesWorkspace({ dataset }: { dataset: DashboardDataset | null }) {
       source: "Imagery is contextual, not classification evidence",
     },
     {
+      title: "MODIS IGBP land cover",
+      state: "Classification context",
+      detail: `${dataset?.events.filter((event) => event.landCover).length.toLocaleString("en-IN") ?? "—"} loaded map events enriched with annual 500 m context`,
+      source: "MCD12Q1.061 · NASA EOSDIS GIBS · 2024-01-01",
+    },
+    {
       title: "Temporal engine v2",
       state: "Candidate ranking",
       detail: `${dataset?.analytics?.observationWindowDays ?? "—"}-day recurrence and median/MAD deviation`,
@@ -641,6 +648,7 @@ export function CommandCenter() {
   const [showFacilities, setShowFacilities] = useState(true);
   const [showGrid, setShowGrid] = useState(true);
   const [showSatellite, setShowSatellite] = useState(true);
+  const [showLandCover, setShowLandCover] = useState(true);
   const [mapFocusNonce, setMapFocusNonce] = useState(0);
   const isDesktop = useSyncExternalStore(
     subscribeToDesktopViewport,
@@ -677,7 +685,8 @@ export function CommandCenter() {
         !normalized ||
         event.title.toLowerCase().includes(normalized) ||
         event.region.toLowerCase().includes(normalized) ||
-        event.shortId.toLowerCase().includes(normalized);
+        event.shortId.toLowerCase().includes(normalized) ||
+        (event.landCover?.classLabel.toLowerCase().includes(normalized) ?? false);
       return categoryMatch && queryMatch;
     });
   }, [activeEvents, filter, query]);
@@ -741,6 +750,7 @@ export function CommandCenter() {
       `Observed baseline: ${selectedEvent.baselineFrp.toFixed(2)} MW median`,
       `Recurrence: ${selectedEvent.activeDays}/${selectedEvent.historyWindow} active days`,
       `Nearest mapped context: ${selectedEvent.nearestFacility} (${selectedEvent.facilityDistance})`,
+      `Land-cover context: ${selectedEvent.landCover ? `${selectedEvent.landCover.classLabel} (${selectedEvent.landCover.observationDate})` : "unavailable"}`,
       `Sensor: ${selectedEvent.sensor}`,
       "",
       "## Evidence",
@@ -871,6 +881,7 @@ export function CommandCenter() {
               <div className="flex items-center gap-2">
                 <button type="button" className="map-tool" onClick={() => setShowGrid((current) => !current)} aria-pressed={showGrid}><Grid3X3 size={12} /> <span className="hidden sm:inline">{showGrid ? "Grid on" : "Grid off"}</span></button>
                 <button type="button" className="map-tool" onClick={() => setShowSatellite((current) => !current)} aria-pressed={showSatellite}><Satellite size={12} /> <span className="hidden sm:inline">{showSatellite ? "Satellite" : "Terrain"}</span></button>
+                <button type="button" className="map-tool" onClick={() => setShowLandCover((current) => !current)} aria-pressed={showLandCover}><Trees size={12} /> <span className="hidden sm:inline">{showLandCover ? "Land cover on" : "Land cover off"}</span></button>
                 <button type="button" className="map-tool" onClick={() => setShowFacilities((current) => !current)}><Layers3 size={12} /> <span className="hidden sm:inline">{showFacilities ? "Facilities on" : "Facilities off"}</span></button>
                 <button type="button" className="map-tool" onClick={() => setNav("Sources")}><Database size={12} /> <span className="hidden sm:inline">Sources</span></button>
               </div>
@@ -883,12 +894,13 @@ export function CommandCenter() {
                 facilities={showFacilities && dataView === "operational" ? operationalDataset?.facilities : []}
                 showGrid={showGrid}
                 showSatellite={showSatellite}
+                showLandCover={showLandCover && dataView === "operational"}
                 focusNonce={mapFocusNonce}
               />
             </div>
             <div className="map-statusbar">
               <span><ShieldCheck size={11} className="text-emerald-400" /> Attribution preserved</span>
-              <span><Database size={11} /> FIRMS · GIBS imagery · OSM</span>
+              <span><Database size={11} /> FIRMS · MODIS IGBP · GIBS imagery · OSM</span>
               <span className="ml-auto font-mono">{dataView === "operational" ? `NASA FIRMS · ${operationalDataset?.returned ?? 0} SHOWN` : "SIMULATION DATA · 01 SEP 2026"}</span>
             </div>
           </section>
@@ -914,7 +926,7 @@ export function CommandCenter() {
         )}
 
         <div className="mt-3 flex items-center justify-between rounded-sm border border-amber-300/15 bg-amber-300/[0.035] px-3 py-2 text-[9px] text-slate-500">
-          <span className="flex items-center gap-2"><ShieldCheck size={12} className="text-amber-300" /> {dataView === "operational" ? "Operational NASA FIRMS detections: thermal anomalies only. Seven-day recurrence and OSM proximity are applied; land cover, long-term history, and incident confirmation remain unavailable." : "Demonstration environment: events and intelligence outputs are simulated and are not operational incident reports."}</span>
+          <span className="flex items-center gap-2"><ShieldCheck size={12} className="text-amber-300" /> {dataView === "operational" ? "Operational NASA FIRMS detections: thermal anomalies only. Seven-day recurrence, OSM proximity, and annual MODIS land cover are applied; long-term history and incident confirmation remain unavailable." : "Demonstration environment: events and intelligence outputs are simulated and are not operational incident reports."}</span>
           <span className="hidden items-center gap-1 text-slate-600 sm:flex">Methodology <ChevronRight size={11} /></span>
         </div>
       </section>

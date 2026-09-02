@@ -66,6 +66,12 @@ def build_cluster_summaries(
             )
         else:
             evidence.append("No supported OSM facility found within 25 km")
+        if latest.land_cover:
+            evidence.append(
+                "NASA MODIS IGBP land cover: "
+                f"{latest.land_cover.class_label} ({latest.land_cover.observation_date}); "
+                "annual context is not source confirmation"
+            )
 
         summaries.append(
             ThermalClusterSummary(
@@ -137,7 +143,7 @@ def cluster_collection(
         caveats=[
             "Seven days supports candidate ranking, not a learned long-term operating baseline.",
             "Cluster and anomaly labels are evidence-backed likelihoods, not incident confirmation.",
-            "Land-cover context is not yet included.",
+            "Annual MODIS IGBP land cover is contextual evidence, not source confirmation.",
         ],
         clusters=summaries[:limit],
     )

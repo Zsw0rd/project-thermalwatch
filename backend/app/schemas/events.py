@@ -6,6 +6,15 @@ from pydantic import BaseModel, Field
 ConfidenceLabel = Literal["low", "nominal", "high", "unknown"]
 EventCategory = Literal["industrial", "vegetation", "agricultural", "unknown"]
 Severity = Literal["critical", "high", "medium", "low"]
+LandCoverGroup = Literal[
+    "vegetation",
+    "cropland",
+    "built_up",
+    "barren",
+    "water",
+    "snow_ice",
+    "unclassified",
+]
 AlertReviewStatus = Literal[
     "requires_analyst_review",
     "acknowledged",
@@ -36,6 +45,21 @@ class TemporalHistoryPoint(BaseModel):
     detection_count: int = Field(ge=1)
     mean_frp_mw: float = Field(ge=0)
     max_frp_mw: float = Field(ge=0)
+
+
+class LandCoverContext(BaseModel):
+    provider: Literal["NASA EOSDIS GIBS"] = "NASA EOSDIS GIBS"
+    product: Literal["MCD12Q1.061 MODIS IGBP annual land cover"] = (
+        "MCD12Q1.061 MODIS IGBP annual land cover"
+    )
+    observation_date: str
+    igbp_values: list[int]
+    class_label: str
+    group: LandCoverGroup
+    rgb: tuple[int, int, int]
+    native_resolution_m: int = 500
+    sampling_method: str
+    source_url: str
 
 
 class NormalizedThermalEvent(BaseModel):
@@ -74,9 +98,10 @@ class NormalizedThermalEvent(BaseModel):
     explanation: list[str]
     context_status: str
     nearest_facility: FacilityContext | None = None
+    land_cover: LandCoverContext | None = None
     source_attribution: SourceAttribution
     model_version: str = "rules_temporal_v2"
-    feature_version: str = "firms_osm_temporal_7d_v1"
+    feature_version: str = "firms_osm_modis_igbp_temporal_7d_v2"
     raw_payload: dict[str, str] = Field(exclude=True)
 
 
@@ -108,6 +133,15 @@ class RefreshResponse(BaseModel):
     refreshed_at: datetime
     files: list[str]
     normalized_events: int
+    message: str
+
+
+class LandCoverRefreshResponse(BaseModel):
+    refreshed_at: datetime
+    observation_date: str
+    sampled_cells: int = Field(ge=0)
+    tile_count: int = Field(ge=0)
+    cache_file: str
     message: str
 
 
