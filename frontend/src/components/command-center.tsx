@@ -17,6 +17,7 @@ import {
   Map,
   Menu,
   Radar,
+  Satellite,
   Search,
   ShieldCheck,
   SlidersHorizontal,
@@ -36,7 +37,14 @@ import {
 } from "recharts";
 import { CLASS_META, DEMO_EVENTS } from "@/lib/demo-data";
 import { fetchOperationalEvents } from "@/lib/api";
-import type { DashboardDataset, EventClass, ThermalEvent } from "@/lib/types";
+import type {
+  AnalyticsDashboard,
+  DashboardDataset,
+  EventClass,
+  ReviewAlert,
+  ThermalClusterSummary,
+  ThermalEvent,
+} from "@/lib/types";
 import { ThermalMap } from "./thermal-map";
 
 type Filter = "all" | EventClass;
@@ -65,12 +73,12 @@ const severityClass = (severity: ThermalEvent["severity"]) =>
   })[severity];
 
 const subscribeToDesktopViewport = (callback: () => void) => {
-  const mediaQuery = window.matchMedia("(min-width: 1280px)");
+  const mediaQuery = window.matchMedia("(min-width: 1120px)");
   mediaQuery.addEventListener("change", callback);
   return () => mediaQuery.removeEventListener("change", callback);
 };
 
-const getDesktopSnapshot = () => window.matchMedia("(min-width: 1280px)").matches;
+const getDesktopSnapshot = () => window.matchMedia("(min-width: 1120px)").matches;
 const getServerDesktopSnapshot = () => false;
 
 function MetricCard({
@@ -184,9 +192,9 @@ function EvidencePanel({ event }: { event: ThermalEvent }) {
         <section className="grid grid-cols-2 gap-px overflow-hidden rounded-sm border border-white/[0.07] bg-white/[0.07]">
           {[
             ["Current FRP", `${event.frp} MW`],
-            ["Baseline FRP", isOperational ? "Not learned" : `${event.baselineFrp} MW`],
-            [isOperational ? "Recurrence proxy" : "Persistence", `${event.persistence}/100`],
-            [isOperational ? "Co-observations" : "Active days", isOperational ? `${event.activeDays} det. / ${event.historyWindow} src.` : `${event.activeDays}/${event.historyWindow}`],
+            ["Observed median", `${event.baselineFrp.toFixed(2)} MW`],
+            [isOperational ? "Persistence score" : "Persistence", `${event.persistence}/100`],
+            ["Active days", `${event.activeDays}/${event.historyWindow}`],
           ].map(([label, value]) => (
             <div key={label} className="bg-[#0a121a] p-3">
               <p className="text-[9px] uppercase tracking-[0.13em] text-slate-600">{label}</p>
@@ -197,7 +205,7 @@ function EvidencePanel({ event }: { event: ThermalEvent }) {
 
         <section>
           <div className="mb-3 flex items-center justify-between">
-            <p className="eyebrow">{isOperational ? "Snapshot thermal signature" : "7-day thermal signature"}</p>
+            <p className="eyebrow">{isOperational ? "Observed thermal history" : "7-day thermal signature"}</p>
             <span className="flex items-center gap-1.5 text-[9px] text-slate-600">
               <i className="h-px w-3 bg-orange-400" /> FRP MW
             </span>
@@ -265,6 +273,176 @@ function EvidencePanel({ event }: { event: ThermalEvent }) {
   );
 }
 
+function AlertsWorkspace({ alerts }: { alerts: ReviewAlert[] }) {
+  const critical = alerts.filter((alert) => alert.severity === "critical").length;
+  const baseline = alerts.filter((alert) => alert.alertType === "elevated_industrial_baseline").length;
+  const unmapped = alerts.filter((alert) => alert.alertType === "persistent_unknown_source").length;
+  return (
+    <section className="stage-workspace">
+      <div className="stage-header">
+        <div>
+          <p className="eyebrow">Analyst review workflow</p>
+          <h2>Alert triage</h2>
+        </div>
+        <span className="stage-badge">{alerts.length} open review items</span>
+      </div>
+      <div className="stage-metrics">
+        <div><span>Critical intensity</span><strong>{critical}</strong></div>
+        <div><span>Baseline deviations</span><strong>{baseline}</strong></div>
+        <div><span>Unmapped persistent</span><strong>{unmapped}</strong></div>
+      </div>
+      <div className="stage-table custom-scrollbar">
+        {alerts.map((alert) => (
+          <article key={alert.id} className="alert-record">
+            <span className={`rounded-sm border px-2 py-1 text-[9px] font-semibold uppercase ${severityClass(alert.severity)}`}>
+              {alert.severity}
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <h3>{alert.title}</h3>
+                <span className="font-mono text-[9px] text-slate-600">{alert.clusterId}</span>
+              </div>
+              <p>{alert.reason}</p>
+              <div className="mt-2 flex flex-wrap gap-3 font-mono text-[9px] text-slate-500">
+                <span>{alert.frp.toFixed(2)} MW</span>
+                <span>{new Date(alert.acquiredAt).toLocaleString("en-IN", { timeZone: "UTC" })} UTC</span>
+                <span>{alert.alertType.replaceAll("_", " ")}</span>
+              </div>
+            </div>
+            <span className="review-chip">Requires review</span>
+          </article>
+        ))}
+      </div>
+      <p className="stage-footnote">Alert rules prioritize evidence for human review. They do not confirm a fire, accident, or responsible facility.</p>
+    </section>
+  );
+}
+
+function SourcesWorkspace({ dataset }: { dataset: DashboardDataset | null }) {
+  const cards = [
+    {
+      title: "NASA FIRMS / VIIRS",
+      state: "Operational",
+      detail: `${dataset?.analytics?.totalEvents.toLocaleString("en-IN") ?? "—"} seven-day detections · 24-hour map window`,
+      source: "NOAA-20 · NOAA-21 · S-NPP",
+    },
+    {
+      title: "OpenStreetMap context",
+      state: "Operational",
+      detail: `${dataset?.facilities.length.toLocaleString("en-IN") ?? "—"} facilities loaded to the web context layer`,
+      source: "Refinery · flare · power · steel · quarry",
+    },
+    {
+      title: "NASA GIBS imagery",
+      state: "Visual context",
+      detail: "VIIRS corrected reflectance over Blue Marble fallback",
+      source: "Imagery is contextual, not classification evidence",
+    },
+    {
+      title: "Temporal engine v2",
+      state: "Candidate ranking",
+      detail: `${dataset?.analytics?.observationWindowDays ?? "—"}-day recurrence and median/MAD deviation`,
+      source: "Deterministic · explainable · no trained ML claim",
+    },
+  ];
+  return (
+    <section className="stage-workspace">
+      <div className="stage-header">
+        <div><p className="eyebrow">Provenance and readiness</p><h2>Evidence sources</h2></div>
+        <span className="stage-badge">Attribution enforced</span>
+      </div>
+      <div className="source-grid">
+        {cards.map((card) => (
+          <article key={card.title} className="source-card">
+            <div className="flex items-center justify-between gap-3">
+              <Database size={16} className="text-cyan-300" />
+              <span>{card.state}</span>
+            </div>
+            <h3>{card.title}</h3>
+            <p>{card.detail}</p>
+            <small>{card.source}</small>
+          </article>
+        ))}
+      </div>
+      <div className="limitations-panel">
+        <p className="eyebrow">Current evidence boundaries</p>
+        {(dataset?.limitations ?? ["Operational API unavailable; deterministic simulation remains active."]).map((item) => (
+          <p key={item}><ShieldCheck size={12} /> {item}</p>
+        ))}
+        <p><Clock3 size={12} /> Source snapshot: {dataset ? new Date(dataset.sourceUpdatedAt).toLocaleString("en-IN") : "offline"}</p>
+      </div>
+    </section>
+  );
+}
+
+function AnalyticsWorkspace({
+  analytics,
+  clusters,
+}: {
+  analytics: AnalyticsDashboard | null;
+  clusters: ThermalClusterSummary[];
+}) {
+  if (!analytics) {
+    return <section className="stage-workspace grid place-items-center text-sm text-slate-500">Analytics are unavailable in simulation mode.</section>;
+  }
+  const dailyMaximum = Math.max(...analytics.dailyActivity.map((point) => point.detections), 1);
+  return (
+    <section className="stage-workspace">
+      <div className="stage-header">
+        <div><p className="eyebrow">Observed temporal intelligence</p><h2>Persistence and anomaly analytics</h2></div>
+        <span className="stage-badge">{analytics.observationWindowDays}-day evidence window</span>
+      </div>
+      <div className="stage-metrics stage-metrics-four">
+        <div><span>Thermal clusters</span><strong>{analytics.totalClusters.toLocaleString("en-IN")}</strong></div>
+        <div><span>Persistent candidates</span><strong>{analytics.persistentCandidates}</strong></div>
+        <div><span>Elevated clusters</span><strong>{analytics.elevatedClusters}</strong></div>
+        <div><span>Unmapped persistent</span><strong>{analytics.unmappedPersistentCandidates}</strong></div>
+      </div>
+      <div className="analytics-grid">
+        <section className="analytics-card">
+          <div className="flex items-center justify-between"><p className="eyebrow">Daily FIRMS activity</p><span>detections</span></div>
+          <div className="daily-bars">
+            {analytics.dailyActivity.map((point) => (
+              <div key={point.date} className="daily-bar-row">
+                <time>{point.date.slice(5)}</time>
+                <i><b style={{ width: `${Math.max(2, point.detections / dailyMaximum * 100)}%` }} /></i>
+                <strong>{point.detections}</strong>
+                <span>{point.meanFrp.toFixed(1)} MW avg</span>
+              </div>
+            ))}
+          </div>
+        </section>
+        <section className="analytics-card">
+          <p className="eyebrow">Classification coverage</p>
+          <div className="class-breakdown">
+            {Object.entries(analytics.categoryCounts).map(([category, count]) => (
+              <div key={category}>
+                <span style={{ background: CLASS_META[category as EventClass].color }} />
+                <p>{CLASS_META[category as EventClass].label}</p>
+                <strong>{count.toLocaleString("en-IN")}</strong>
+              </div>
+            ))}
+          </div>
+          <p className="mt-5 text-[10px] leading-relaxed text-slate-500">{analytics.methodology}</p>
+        </section>
+      </div>
+      <section className="cluster-leaderboard">
+        <div className="flex items-center justify-between"><p className="eyebrow">Persistent-source candidates</p><span>Analyst validation required</span></div>
+        <div className="cluster-head"><span>Cluster / context</span><span>Active days</span><span>Median FRP</span><span>Persistence</span><span>Status</span></div>
+        {clusters.filter((cluster) => cluster.persistenceLabel === "persistent_candidate").slice(0, 12).map((cluster) => (
+          <div key={cluster.clusterId} className="cluster-row">
+            <span><b>{cluster.facilityName ?? "Unmapped source"}</b><small>{cluster.clusterId} · {cluster.classification}</small></span>
+            <span>{cluster.activeDays}/{cluster.observationWindowDays}</span>
+            <span>{cluster.medianFrp.toFixed(2)} MW</span>
+            <span>{Math.round(cluster.persistenceScore * 100)}%</span>
+            <span className={cluster.anomalyStatus === "elevated" ? "text-orange-300" : "text-emerald-300"}>{cluster.anomalyStatus.replaceAll("_", " ")}</span>
+          </div>
+        ))}
+      </section>
+    </section>
+  );
+}
+
 export function CommandCenter() {
   const [filter, setFilter] = useState<Filter>("all");
   const [selectedId, setSelectedId] = useState(DEMO_EVENTS[0].id);
@@ -276,6 +454,8 @@ export function CommandCenter() {
   const [apiStatus, setApiStatus] = useState<"loading" | "ready" | "unavailable">("loading");
   const [showFacilities, setShowFacilities] = useState(true);
   const [showGrid, setShowGrid] = useState(true);
+  const [showSatellite, setShowSatellite] = useState(true);
+  const [mapFocusNonce, setMapFocusNonce] = useState(0);
   const isDesktop = useSyncExternalStore(
     subscribeToDesktopViewport,
     getDesktopSnapshot,
@@ -324,16 +504,57 @@ export function CommandCenter() {
     activeEvents.find((event) => event.id === effectiveSelectedId) ?? activeEvents[0] ?? DEMO_EVENTS[0];
 
   const highFrpCount = activeEvents.filter((event) => event.frp >= 20).length;
-  const corroboratedCount = activeEvents.filter((event) => event.status === "Cross-sensor corroboration").length;
+  const corroboratedCount = activeEvents.filter((event) => (event.sensorCount ?? 1) >= 2).length;
   const priorityCount =
     dataView === "operational" && operationalDataset
       ? operationalDataset.alertCount
       : activeEvents.filter((event) => event.severity === "critical" || event.severity === "high").length;
   const datasetTotal = dataView === "operational" && operationalDataset ? operationalDataset.total : activeEvents.length;
+  const visibleQueueEvents = filteredEvents.slice(0, 350);
 
   const selectEvent = (id: string) => {
     setSelectedId(id);
-    if (window.innerWidth < 1280) setMobileIntelOpen(true);
+    setMapFocusNonce((current) => current + 1);
+    if (window.innerWidth < 1120) setMobileIntelOpen(true);
+  };
+
+  const viewCopy = {
+    Overview: ["National operating picture", "Thermal intelligence command center", "Detection · context · persistence · classification · explanation"],
+    Events: ["Evidence-led triage", "Alert and event review", "Prioritized candidates · reason codes · human validation"],
+    Sources: ["Provenance control", "Evidence source registry", "Readiness · attribution · known boundaries"],
+    Analytics: ["Temporal analysis", "Persistence and anomaly workspace", "Observed recurrence · robust deviation · candidate ranking"],
+  }[nav] ?? ["National operating picture", "Thermal intelligence command center", "Detection · context · persistence · classification · explanation"];
+
+  const generateBrief = () => {
+    const lines = [
+      `# ThermalWatch evidence brief — ${selectedEvent.shortId}`,
+      "",
+      `Generated: ${new Date().toISOString()}`,
+      `Classification: ${selectedEvent.classification} (${selectedEvent.confidence}% rules confidence)`,
+      `Status: ${selectedEvent.status}`,
+      `Coordinates: ${selectedEvent.coordinates[1].toFixed(5)}, ${selectedEvent.coordinates[0].toFixed(5)}`,
+      `Observed FRP: ${selectedEvent.frp.toFixed(2)} MW`,
+      `Observed baseline: ${selectedEvent.baselineFrp.toFixed(2)} MW median`,
+      `Recurrence: ${selectedEvent.activeDays}/${selectedEvent.historyWindow} active days`,
+      `Nearest mapped context: ${selectedEvent.nearestFacility} (${selectedEvent.facilityDistance})`,
+      `Sensor: ${selectedEvent.sensor}`,
+      "",
+      "## Evidence",
+      ...selectedEvent.evidence.map((item) => `- ${item.label}: ${item.value} — ${item.source}`),
+      "",
+      "## Interpretation boundary",
+      "This brief ranks an evidence-backed thermal-anomaly candidate for analyst review. It does not confirm a fire, accident, or responsible facility.",
+      "",
+      `Source record: ${selectedEvent.sourceUrl ?? "deterministic simulation fixture"}`,
+      `Model: ${selectedEvent.modelVersion ?? "simulation_rules_v1"}`,
+      `Features: ${selectedEvent.featureVersion ?? "simulation_features_v1"}`,
+    ];
+    const url = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/markdown" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `thermalwatch-${selectedEvent.shortId.toLowerCase()}-brief.md`;
+    anchor.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -371,7 +592,7 @@ export function CommandCenter() {
             <span className={`h-1.5 w-1.5 rounded-full ${apiStatus === "ready" ? "bg-emerald-400" : apiStatus === "loading" ? "bg-amber-300" : "bg-slate-600"}`} />
             {apiStatus === "loading" ? "Connecting FIRMS" : dataView === "operational" ? "NASA FIRMS snapshot" : apiStatus === "ready" ? "Simulation · FIRMS ready" : "Simulation · API offline"}
           </button>
-          <button type="button" className="icon-button relative" aria-label="Notifications">
+          <button type="button" className="icon-button relative" aria-label="Notifications" onClick={() => setNav("Events")}>
             <Bell size={15} />
             <i className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-orange-400" />
           </button>
@@ -381,13 +602,13 @@ export function CommandCenter() {
       </header>
 
       <section className="mx-auto max-w-[1800px] px-3 pb-5 pt-4 sm:px-5 lg:px-6">
-        <div className="mb-4 flex flex-col justify-between gap-3 xl:flex-row xl:items-end">
+        <div className="mb-3 flex flex-col justify-between gap-3 lg:flex-row lg:items-end">
           <div>
             <div className="flex items-center gap-2 text-[9px] font-semibold uppercase tracking-[0.18em] text-orange-400">
-              <CircleDot size={11} /> National operating picture
+              <CircleDot size={11} /> {viewCopy[0]}
             </div>
-            <h1 className="mt-1 text-xl font-semibold tracking-[-0.035em] text-white sm:text-2xl">Thermal intelligence command center</h1>
-            <p className="mt-1 text-[11px] text-slate-500">Detection · context · persistence · classification · explanation</p>
+            <h1 className="mt-1 text-xl font-semibold tracking-[-0.035em] text-white sm:text-2xl">{viewCopy[1]}</h1>
+            <p className="mt-1 text-[11px] text-slate-500">{viewCopy[2]}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <div className="search-box">
@@ -396,23 +617,23 @@ export function CommandCenter() {
               {query && <button type="button" onClick={() => setQuery("")} aria-label="Clear search"><X size={12} /></button>}
             </div>
             <button type="button" className="secondary-button"><SlidersHorizontal size={13} /> Advanced filters</button>
-            <button type="button" className="primary-button"><Sparkles size={13} /> Generate brief</button>
+            <button type="button" className="primary-button" onClick={generateBrief}><Sparkles size={13} /> Generate brief</button>
           </div>
         </div>
 
-        <div className="mb-4 grid grid-cols-2 gap-2 lg:grid-cols-4">
+        <div className="mb-3 grid grid-cols-2 gap-2 lg:grid-cols-4">
           <MetricCard label="Thermal detections" value={datasetTotal.toLocaleString("en-IN")} detail={`${activeEvents.length} loaded on this map`} icon={Flame} tone="#ff6b35" />
           <MetricCard label="High-FRP signals" value={String(highFrpCount).padStart(2, "0")} detail="FRP ≥ 20 MW · not incident confirmation" icon={Gauge} tone="#f7bf4f" />
           <MetricCard label="Corroborated cells" value={String(corroboratedCount).padStart(2, "0")} detail="Observed by multiple VIIRS sources" icon={Radar} tone="#7ed957" />
           <MetricCard label="Priority review" value={String(priorityCount).padStart(2, "0")} detail="One triage item per grid cell" icon={AlertTriangle} tone="#b28cff" />
         </div>
 
-        <div className="workspace-grid">
+        {nav === "Overview" && <div className="workspace-grid">
           <section className="event-rail custom-scrollbar">
             <div className="border-b border-white/[0.07] p-3">
               <div className="flex items-center justify-between">
                 <p className="eyebrow">Intelligence queue</p>
-                <span className="font-mono text-[10px] text-slate-600">{filteredEvents.length}/{activeEvents.length}</span>
+                <span className="font-mono text-[10px] text-slate-600">{visibleQueueEvents.length}/{filteredEvents.length}</span>
               </div>
               <div className="filter-strip mt-3 flex gap-1.5 pb-1">
                 {FILTERS.map((item) => (
@@ -426,7 +647,7 @@ export function CommandCenter() {
               </div>
             </div>
             <div className="divide-y divide-white/[0.055]">
-              {filteredEvents.length ? filteredEvents.map((event) => (
+              {visibleQueueEvents.length ? visibleQueueEvents.map((event) => (
                 <EventRow key={event.id} event={event} selected={effectiveSelectedId === event.id} onClick={() => selectEvent(event.id)} />
               )) : (
                 <div className="px-4 py-10 text-center">
@@ -445,8 +666,9 @@ export function CommandCenter() {
               </div>
               <div className="flex items-center gap-2">
                 <button type="button" className="map-tool" onClick={() => setShowGrid((current) => !current)} aria-pressed={showGrid}><Grid3X3 size={12} /> <span className="hidden sm:inline">{showGrid ? "Grid on" : "Grid off"}</span></button>
+                <button type="button" className="map-tool" onClick={() => setShowSatellite((current) => !current)} aria-pressed={showSatellite}><Satellite size={12} /> <span className="hidden sm:inline">{showSatellite ? "Satellite" : "Terrain"}</span></button>
                 <button type="button" className="map-tool" onClick={() => setShowFacilities((current) => !current)}><Layers3 size={12} /> <span className="hidden sm:inline">{showFacilities ? "Facilities on" : "Facilities off"}</span></button>
-                <button type="button" className="map-tool"><Database size={12} /> <span className="hidden sm:inline">Sources</span></button>
+                <button type="button" className="map-tool" onClick={() => setNav("Sources")}><Database size={12} /> <span className="hidden sm:inline">Sources</span></button>
               </div>
             </div>
             <div className="relative min-h-[480px] flex-1">
@@ -456,26 +678,37 @@ export function CommandCenter() {
                 onSelect={selectEvent}
                 facilities={showFacilities && dataView === "operational" ? operationalDataset?.facilities : []}
                 showGrid={showGrid}
+                showSatellite={showSatellite}
+                focusNonce={mapFocusNonce}
               />
             </div>
             <div className="map-statusbar">
               <span><ShieldCheck size={11} className="text-emerald-400" /> Attribution preserved</span>
-              <span><Database size={11} /> FIRMS · OSM · land cover pending</span>
+              <span><Database size={11} /> FIRMS · GIBS imagery · OSM</span>
               <span className="ml-auto font-mono">{dataView === "operational" ? `NASA FIRMS · ${operationalDataset?.returned ?? 0} SHOWN` : "SIMULATION DATA · 01 SEP 2026"}</span>
             </div>
           </section>
 
           {isDesktop && <EvidencePanel event={selectedEvent} />}
-        </div>
+        </div>}
+
+        {nav === "Events" && <AlertsWorkspace alerts={operationalDataset?.alerts ?? []} />}
+        {nav === "Sources" && <SourcesWorkspace dataset={operationalDataset} />}
+        {nav === "Analytics" && (
+          <AnalyticsWorkspace
+            analytics={operationalDataset?.analytics ?? null}
+            clusters={operationalDataset?.clusters ?? []}
+          />
+        )}
 
         <div className="mt-3 flex items-center justify-between rounded-sm border border-amber-300/15 bg-amber-300/[0.035] px-3 py-2 text-[9px] text-slate-500">
-          <span className="flex items-center gap-2"><ShieldCheck size={12} className="text-amber-300" /> {dataView === "operational" ? "Operational NASA FIRMS detections: thermal anomalies only. OSM proximity is applied; land cover, persistence history, and incident confirmation are not yet available." : "Demonstration environment: events and intelligence outputs are simulated and are not operational incident reports."}</span>
+          <span className="flex items-center gap-2"><ShieldCheck size={12} className="text-amber-300" /> {dataView === "operational" ? "Operational NASA FIRMS detections: thermal anomalies only. Seven-day recurrence and OSM proximity are applied; land cover, long-term history, and incident confirmation remain unavailable." : "Demonstration environment: events and intelligence outputs are simulated and are not operational incident reports."}</span>
           <span className="hidden items-center gap-1 text-slate-600 sm:flex">Methodology <ChevronRight size={11} /></span>
         </div>
       </section>
 
       {mobileIntelOpen && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm xl:hidden" onClick={() => setMobileIntelOpen(false)}>
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm min-[1120px]:hidden" onClick={() => setMobileIntelOpen(false)}>
           <div className="absolute bottom-0 right-0 top-0 w-full max-w-md bg-[#071018] shadow-2xl" onClick={(event) => event.stopPropagation()}>
             <button type="button" onClick={() => setMobileIntelOpen(false)} className="absolute right-4 top-4 z-10 icon-button" aria-label="Close intelligence panel"><X size={15} /></button>
             <EvidencePanel event={selectedEvent} />

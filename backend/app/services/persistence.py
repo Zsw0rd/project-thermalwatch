@@ -42,7 +42,7 @@ def persist_current_snapshot(session: Session) -> PersistenceResponse:
                 "detection_count": len(members),
                 "sensor_count": len({event.source for event in members}),
                 "persistence_score": max(event.recurrence_score for event in members),
-                "baseline_frp_mw": None,
+                "baseline_frp_mw": members[0].baseline_frp_mw,
             }
         )
     for chunk in _chunks(cluster_rows):
@@ -57,6 +57,7 @@ def persist_current_snapshot(session: Session) -> PersistenceResponse:
                     "detection_count": statement.excluded.detection_count,
                     "sensor_count": statement.excluded.sensor_count,
                     "persistence_score": statement.excluded.persistence_score,
+                    "baseline_frp_mw": statement.excluded.baseline_frp_mw,
                 },
             )
         )

@@ -32,6 +32,7 @@ export type ThermalEvent = {
   status: string;
   detectedAt: string;
   sensor: string;
+  sensorCount?: number;
   frp: number;
   baselineFrp: number;
   brightness: number;
@@ -46,6 +47,11 @@ export type ThermalEvent = {
   history: ThermalHistoryPoint[];
   dataOrigin?: "simulation" | "nasa-firms";
   sourceUrl?: string;
+  clusterId?: string;
+  anomalyStatus?: "elevated" | "within_observed_range" | "insufficient_baseline";
+  anomalyScore?: number;
+  modelVersion?: string;
+  featureVersion?: string;
 };
 
 export type IndustrialFacility = {
@@ -64,4 +70,69 @@ export type DashboardDataset = {
   returned: number;
   sourceUpdatedAt: string;
   limitations: string[];
+  clusters: ThermalClusterSummary[];
+  alerts: ReviewAlert[];
+  analytics: AnalyticsDashboard | null;
+};
+
+export type ThermalClusterSummary = {
+  clusterId: string;
+  representativeEventId: string;
+  coordinates: [number, number];
+  detectionCount: number;
+  sensorCount: number;
+  activeDays: number;
+  observationWindowDays: number;
+  firstSeen: string;
+  lastSeen: string;
+  meanFrp: number;
+  medianFrp: number;
+  maxFrp: number;
+  latestFrp: number;
+  anomalyScore: number | null;
+  anomalyStatus: "elevated" | "within_observed_range" | "insufficient_baseline";
+  persistenceScore: number;
+  persistenceLabel: "persistent_candidate" | "recurring_candidate" | "insufficient_history";
+  classification: string;
+  category: EventClass;
+  facilityName: string | null;
+  facilityType: string | null;
+  facilityDistanceM: number | null;
+  evidence: string[];
+};
+
+export type ReviewAlert = {
+  id: string;
+  eventId: string;
+  clusterId: string;
+  alertType: string;
+  severity: AlertSeverity;
+  title: string;
+  reason: string;
+  acquiredAt: string;
+  frp: number;
+  evidence: string[];
+};
+
+export type DailyAnalyticsPoint = {
+  date: string;
+  detections: number;
+  meanFrp: number;
+  industrialContextEvents: number;
+};
+
+export type AnalyticsDashboard = {
+  observationWindowStart: string;
+  observationWindowEnd: string;
+  observationWindowDays: number;
+  totalEvents: number;
+  totalClusters: number;
+  persistentCandidates: number;
+  recurringCandidates: number;
+  elevatedClusters: number;
+  unmappedPersistentCandidates: number;
+  categoryCounts: Record<string, number>;
+  severityCounts: Record<string, number>;
+  dailyActivity: DailyAnalyticsPoint[];
+  methodology: string;
 };

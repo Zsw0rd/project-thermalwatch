@@ -55,3 +55,44 @@ def test_facilities_endpoint_preserves_osm_attribution() -> None:
     payload = response.json()
     assert payload["source"] == "OpenStreetMap / Overpass"
     assert payload["total"] >= len(payload["facilities"]) == 3
+
+
+def test_seven_day_temporal_cluster_and_history_surfaces() -> None:
+    events_response = client.get(
+        "/api/v1/events",
+        params={"min_frp": 1, "window_hours": 24, "limit": 3},
+    )
+    assert events_response.status_code == 200
+    event = events_response.json()["events"][0]
+    assert event["observation_window_days"] >= 7
+    assert event["active_days"] >= 1
+    assert event["baseline_frp_mw"] >= 0
+    assert event["model_version"] == "rules_temporal_v2"
+
+    history_response = client.get(f"/api/v1/events/{event['id']}/history")
+    assert history_response.status_code == 200
+    history = history_response.json()
+    assert history["cluster_id"] == event["cluster_id"]
+    assert history["temporal_history"]
+    assert "incident confirmation" in " ".join(history["evidence"]).lower()
+
+
+def test_cluster_and_analytics_dashboards_are_evidence_bounded() -> None:
+    cluster_response = client.get("/api/v1/clusters", params={"limit": 5})
+    assert cluster_response.status_code == 200
+    clusters = cluster_response.json()
+    assert clusters["observation_window_days"] >= 7
+    assert clusters["total"] >= clusters["returned"] == 5
+    assert all(
+        cluster["data_quality"] in {"seven_day_observation", "snapshot_only"}
+        for cluster in clusters["clusters"]
+    )
+    assert any("not incident confirmation" in caveat for caveat in clusters["caveats"])
+
+    analytics_response = client.get("/api/v1/analytics/dashboard")
+    assert analytics_response.status_code == 200
+    analytics = analytics_response.json()
+    assert analytics["total_events"] > 0
+    assert analytics["total_clusters"] > 0
+    assert len(analytics["daily_activity"]) >= 7
+    assert "no trained ml" in analytics["methodology"].lower()

@@ -8,6 +8,7 @@ import tempfile
 from collections import Counter, defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
+from statistics import median
 from threading import Lock
 from urllib.parse import quote
 from urllib.request import Request, urlopen
@@ -21,6 +22,7 @@ from app.schemas.events import (
     NormalizedThermalEvent,
     RefreshResponse,
     SourceAttribution,
+    TemporalHistoryPoint,
 )
 from app.services.osm import build_facility_index, load_facilities, nearest_facility
 
@@ -46,7 +48,34 @@ PUBLIC_FEEDS: dict[str, tuple[str, str]] = {
             "suomi-npp-viirs-c2/csv/SUOMI_VIIRS_C2_South_Asia_24h.csv"
         ),
     ),
+    "J1_VIIRS_C2_South_Asia_7d.csv": (
+        "VIIRS_NOAA20_NRT",
+        (
+            "https://firms.modaps.eosdis.nasa.gov/data/active_fire/"
+            "noaa-20-viirs-c2/csv/J1_VIIRS_C2_South_Asia_7d.csv"
+        ),
+    ),
+    "J2_VIIRS_C2_South_Asia_7d.csv": (
+        "VIIRS_NOAA21_NRT",
+        (
+            "https://firms.modaps.eosdis.nasa.gov/data/active_fire/"
+            "noaa-21-viirs-c2/csv/J2_VIIRS_C2_South_Asia_7d.csv"
+        ),
+    ),
+    "SUOMI_VIIRS_C2_South_Asia_7d.csv": (
+        "VIIRS_SNPP_NRT",
+        (
+            "https://firms.modaps.eosdis.nasa.gov/data/active_fire/"
+            "suomi-npp-viirs-c2/csv/SUOMI_VIIRS_C2_South_Asia_7d.csv"
+        ),
+    ),
 }
+
+PUBLIC_REFRESH_FILES = (
+    "J1_VIIRS_C2_South_Asia_7d.csv",
+    "J2_VIIRS_C2_South_Asia_7d.csv",
+    "SUOMI_VIIRS_C2_South_Asia_7d.csv",
+)
 
 _events_cache: list[NormalizedThermalEvent] | None = None
 _cache_signature: tuple[tuple[str, int, int], ...] | None = None
@@ -95,6 +124,19 @@ def _cluster_id(key: str) -> str:
     return f"TS-{hashlib.sha1(key.encode('utf-8')).hexdigest()[:10].upper()}"
 
 
+def _haversine_m(lat_a: float, lon_a: float, lat_b: float, lon_b: float) -> float:
+    radius_m = 6_371_008.8
+    lat_a_rad = math.radians(lat_a)
+    lat_b_rad = math.radians(lat_b)
+    delta_lat = math.radians(lat_b - lat_a)
+    delta_lon = math.radians(lon_b - lon_a)
+    value = (
+        math.sin(delta_lat / 2) ** 2
+        + math.cos(lat_a_rad) * math.cos(lat_b_rad) * math.sin(delta_lon / 2) ** 2
+    )
+    return radius_m * 2 * math.atan2(math.sqrt(value), math.sqrt(1 - value))
+
+
 def _severity(frp: float, confidence: ConfidenceLabel) -> str:
     if frp >= 50 and confidence == "high":
         return "critical"
@@ -121,7 +163,45 @@ def alert_previews(events: list[NormalizedThermalEvent]) -> AlertCollection:
         max_frp = representative.frp_mw
         sensor_count = max(event.cluster_sensor_count for event in members)
 
-        if industrial_member is not None and max_frp >= 20:
+        elevated_industrial = next(
+            (
+                event
+                for event in members
+                if event.category == "industrial" and event.anomaly_status == "elevated"
+            ),
+            None,
+        )
+        persistent_unknown = next(
+            (
+                event
+                for event in members
+                if event.category == "unknown"
+                and event.active_days >= 4
+                and event.recurrence_score >= 0.72
+                and event.nearest_facility is None
+            ),
+            None,
+        )
+
+        if elevated_industrial is not None:
+            representative = elevated_industrial
+            max_frp = representative.frp_mw
+            alert_type = "elevated_industrial_baseline"
+            title = "Industrial-context source above observed FRP baseline"
+            reason = (
+                "A thermal anomaly near mapped industrial context exceeded the robust "
+                "seven-day median/MAD review threshold."
+            )
+        elif persistent_unknown is not None:
+            representative = persistent_unknown
+            max_frp = representative.frp_mw
+            alert_type = "persistent_unknown_source"
+            title = "Persistent thermal source without mapped industrial explanation"
+            reason = (
+                "A spatially stable thermal cell recurred on at least four observed days "
+                "without a supported OSM facility match."
+            )
+        elif industrial_member is not None and max_frp >= 20:
             alert_type = "industrial_context_high_frp"
             title = "High-FRP anomaly near mapped industrial context"
             reason = (
@@ -159,6 +239,8 @@ def alert_previews(events: list[NormalizedThermalEvent]) -> AlertCollection:
                 evidence=[
                     f"Maximum cluster FRP: {max_frp:.2f} MW",
                     f"VIIRS sources in grid cell: {sensor_count}",
+                    f"Active days: {representative.active_days} / {representative.observation_window_days}",
+                    f"Observed median FRP: {representative.baseline_frp_mw:.2f} MW",
                     representative.classification,
                     "Alert is a deterministic triage rule, not an incident confirmation",
                 ],
@@ -171,8 +253,9 @@ def alert_previews(events: list[NormalizedThermalEvent]) -> AlertCollection:
         generated_at=datetime.now(UTC),
         total=len(alerts),
         methodology=(
-            "One review item per ~1 km grid cell. Rules use FRP, multi-source "
-            "co-observation, and conservative OSM proximity; no alert confirms a fire."
+            "One review item per ~1 km grid cell. Rules use FRP, seven-day recurrence, "
+            "robust median/MAD deviation, multi-source co-observation, and conservative "
+            "OSM proximity; no alert confirms a fire."
         ),
         alerts=alerts,
     )
@@ -278,15 +361,77 @@ def _build_events(settings: Settings) -> list[NormalizedThermalEvent]:
 
     events: list[NormalizedThermalEvent] = []
     confidence_scores = {"high": 0.9, "nominal": 0.72, "low": 0.45, "unknown": 0.35}
+    window_start = min(
+        (row["acquired_at"] for row in raw_events),
+        default=datetime.now(UTC),
+    )
+    window_end = max(
+        (row["acquired_at"] for row in raw_events),
+        default=window_start,
+    )
+    observation_window_days = max(1, (window_end.date() - window_start.date()).days + 1)
 
     for row in raw_events:
         cluster = clusters[str(row["cluster_key"])]
         sensor_count = len({str(item["source"]) for item in cluster})
         detection_count = len(cluster)
+        active_days = len({item["acquired_at"].date() for item in cluster})
+        cluster_first_seen = min(item["acquired_at"] for item in cluster)
+        cluster_last_seen = max(item["acquired_at"] for item in cluster)
+        cluster_frps = [float(item["frp_mw"]) for item in cluster]
+        baseline_frp = float(median(cluster_frps))
+        frp_mad = float(median(abs(value - baseline_frp) for value in cluster_frps))
+        centroid_latitude = sum(float(item["latitude"]) for item in cluster) / detection_count
+        centroid_longitude = sum(float(item["longitude"]) for item in cluster) / detection_count
+        spatial_spread_m = max(
+            (
+                _haversine_m(
+                    centroid_latitude,
+                    centroid_longitude,
+                    float(item["latitude"]),
+                    float(item["longitude"]),
+                )
+                for item in cluster
+            ),
+            default=0,
+        )
+        active_ratio = active_days / observation_window_days
+        density_score = min(1.0, detection_count / max(1, active_days * 3))
+        stability_score = max(0.0, 1 - spatial_spread_m / 1_500)
+        sensor_support = min(1.0, sensor_count / 3)
         recurrence_score = min(
             1.0,
-            min(detection_count - 1, 4) / 8 + min(sensor_count - 1, 2) / 4,
+            0.45 * active_ratio
+            + 0.20 * density_score
+            + 0.20 * stability_score
+            + 0.15 * sensor_support,
         )
+        anomaly_score = None
+        if detection_count >= 5 and frp_mad >= 0.1:
+            anomaly_score = (float(row["frp_mw"]) - baseline_frp) / (1.4826 * frp_mad)
+        if (
+            anomaly_score is not None
+            and anomaly_score >= 3
+            and float(row["frp_mw"]) >= baseline_frp + 5
+        ):
+            anomaly_status = "elevated"
+        elif detection_count >= 5 and active_days >= 3:
+            anomaly_status = "within_observed_range"
+        else:
+            anomaly_status = "insufficient_baseline"
+
+        daily_frps: dict[str, list[float]] = defaultdict(list)
+        for item in cluster:
+            daily_frps[item["acquired_at"].date().isoformat()].append(float(item["frp_mw"]))
+        temporal_history = [
+            TemporalHistoryPoint(
+                date=date,
+                detection_count=len(values),
+                mean_frp_mw=round(sum(values) / len(values), 2),
+                max_frp_mw=round(max(values), 2),
+            )
+            for date, values in sorted(daily_frps.items())
+        ]
         confidence = str(row["confidence"])
         base_confidence = confidence_scores.get(confidence, 0.35)
         facility_context = nearest_facility(
@@ -308,15 +453,27 @@ def _build_events(settings: Settings) -> list[NormalizedThermalEvent]:
             and industrial_threshold_m is not None
             and facility_context.distance_m <= industrial_threshold_m
         ):
-            classification = "Thermal anomaly near mapped industrial facility"
-            classification_confidence = min(0.94, base_confidence + 0.14)
+            if anomaly_status == "elevated":
+                classification = "Elevated industrial thermal anomaly"
+            elif active_days >= 4 and recurrence_score >= 0.65:
+                classification = "Persistent industrial thermal source candidate"
+            else:
+                classification = "Thermal anomaly near mapped industrial facility"
+            classification_confidence = min(
+                0.96,
+                base_confidence + 0.14 + (0.08 if active_days >= 4 else 0),
+            )
             category = "industrial"
+        elif active_days >= 4 and recurrence_score >= 0.72:
+            classification = "Persistent unmapped thermal source candidate"
+            classification_confidence = min(0.91, base_confidence + 0.14)
+            category = "unknown"
         elif sensor_count >= 2:
             classification = "Multi-sensor thermal anomaly"
             classification_confidence = min(0.95, base_confidence + 0.12)
             category = "unknown"
         elif detection_count >= 3:
-            classification = "Repeated thermal anomaly (24 h)"
+            classification = "Repeated thermal anomaly"
             classification_confidence = min(0.88, base_confidence + 0.08)
             category = "unknown"
         else:
@@ -328,7 +485,9 @@ def _build_events(settings: Settings) -> list[NormalizedThermalEvent]:
             f"NASA FIRMS confidence: {confidence}",
             f"FRP: {float(row['frp_mw']):.2f} MW",
             f"{detection_count} detection(s) in the same ~1 km grid cell",
-            f"Observed by {sensor_count} VIIRS source(s) in this snapshot",
+            f"Observed on {active_days} of {observation_window_days} day(s)",
+            f"Observed by {sensor_count} VIIRS source(s) in the evidence window",
+            f"Median observed FRP baseline: {baseline_frp:.2f} MW",
         ]
         if facility_context:
             explanation.append(
@@ -337,6 +496,10 @@ def _build_events(settings: Settings) -> list[NormalizedThermalEvent]:
             )
         else:
             explanation.append("No supported OSM facility found within 25 km")
+        if anomaly_status == "elevated":
+            explanation.append(
+                "FRP is elevated relative to the cluster's seven-day median/MAD baseline"
+            )
         explanation.append("Land-cover context has not yet been applied")
 
         events.append(
@@ -359,15 +522,24 @@ def _build_events(settings: Settings) -> list[NormalizedThermalEvent]:
                 cluster_detection_count=detection_count,
                 cluster_sensor_count=sensor_count,
                 recurrence_score=round(recurrence_score, 3),
+                observation_window_days=observation_window_days,
+                active_days=active_days,
+                first_seen=cluster_first_seen,
+                last_seen=cluster_last_seen,
+                baseline_frp_mw=round(baseline_frp, 3),
+                frp_mad_mw=round(frp_mad, 3),
+                anomaly_score=round(anomaly_score, 3) if anomaly_score is not None else None,
+                anomaly_status=anomaly_status,
+                temporal_history=temporal_history,
                 category=category,
                 classification=classification,
                 classification_confidence=round(classification_confidence, 3),
                 severity=_severity(float(row["frp_mw"]), row["confidence"]),
                 explanation=explanation,
                 context_status=(
-                    "FIRMS_AND_OSM_PROXIMITY_NO_LAND_COVER"
+                    "FIRMS_OSM_AND_7D_TEMPORAL_NO_LAND_COVER"
                     if facilities
-                    else "FIRMS_ONLY_NO_OSM_OR_LAND_COVER"
+                    else "FIRMS_AND_7D_TEMPORAL_NO_OSM_OR_LAND_COVER"
                 ),
                 nearest_facility=facility_context,
                 source_attribution=SourceAttribution(
@@ -432,7 +604,8 @@ def refresh_source_files(settings: Settings | None = None) -> RefreshResponse:
         _download(url, settings.firms_cache_dir / filename, settings.firms_request_timeout_seconds)
         downloaded.append(filename)
     else:
-        for filename, (_, url) in PUBLIC_FEEDS.items():
+        for filename in PUBLIC_REFRESH_FILES:
+            _, url = PUBLIC_FEEDS[filename]
             _download(
                 url,
                 settings.firms_cache_dir / filename,
@@ -450,7 +623,7 @@ def refresh_source_files(settings: Settings | None = None) -> RefreshResponse:
         message=(
             "Refreshed from the authenticated FIRMS Area API."
             if settings.firms_map_key
-            else "Refreshed from official public NASA FIRMS South Asia 24-hour feeds."
+            else "Refreshed from official public NASA FIRMS South Asia seven-day feeds."
         ),
     )
 

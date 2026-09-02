@@ -25,6 +25,13 @@ class FacilityContext(BaseModel):
     source: Literal["OpenStreetMap"] = "OpenStreetMap"
 
 
+class TemporalHistoryPoint(BaseModel):
+    date: str
+    detection_count: int = Field(ge=1)
+    mean_frp_mw: float = Field(ge=0)
+    max_frp_mw: float = Field(ge=0)
+
+
 class NormalizedThermalEvent(BaseModel):
     id: str
     source: str
@@ -45,6 +52,15 @@ class NormalizedThermalEvent(BaseModel):
     cluster_detection_count: int = Field(ge=1)
     cluster_sensor_count: int = Field(ge=1)
     recurrence_score: float = Field(ge=0, le=1)
+    observation_window_days: int = Field(ge=1)
+    active_days: int = Field(ge=1)
+    first_seen: datetime
+    last_seen: datetime
+    baseline_frp_mw: float = Field(ge=0)
+    frp_mad_mw: float = Field(ge=0)
+    anomaly_score: float | None = None
+    anomaly_status: Literal["elevated", "within_observed_range", "insufficient_baseline"]
+    temporal_history: list[TemporalHistoryPoint]
     category: EventCategory
     classification: str
     classification_confidence: float = Field(ge=0, le=1)
@@ -53,6 +69,8 @@ class NormalizedThermalEvent(BaseModel):
     context_status: str
     nearest_facility: FacilityContext | None = None
     source_attribution: SourceAttribution
+    model_version: str = "rules_temporal_v2"
+    feature_version: str = "firms_osm_temporal_7d_v1"
     raw_payload: dict[str, str] = Field(exclude=True)
 
 
@@ -100,6 +118,8 @@ class AlertPreview(BaseModel):
     event_id: str
     cluster_id: str
     alert_type: Literal[
+        "elevated_industrial_baseline",
+        "persistent_unknown_source",
         "industrial_context_high_frp",
         "multi_sensor_high_frp",
         "high_frp_thermal_anomaly",
@@ -121,3 +141,74 @@ class AlertCollection(BaseModel):
     total: int
     methodology: str
     alerts: list[AlertPreview]
+
+
+class ThermalClusterSummary(BaseModel):
+    cluster_id: str
+    representative_event_id: str
+    centroid_latitude: float = Field(ge=-90, le=90)
+    centroid_longitude: float = Field(ge=-180, le=180)
+    detection_count: int = Field(ge=1)
+    sensor_count: int = Field(ge=1)
+    active_days: int = Field(ge=1)
+    observation_window_days: int = Field(ge=1)
+    first_seen: datetime
+    last_seen: datetime
+    day_detection_ratio: float = Field(ge=0, le=1)
+    night_detection_ratio: float = Field(ge=0, le=1)
+    mean_frp_mw: float = Field(ge=0)
+    median_frp_mw: float = Field(ge=0)
+    max_frp_mw: float = Field(ge=0)
+    frp_mad_mw: float = Field(ge=0)
+    latest_frp_mw: float = Field(ge=0)
+    anomaly_score: float | None = None
+    anomaly_status: Literal["elevated", "within_observed_range", "insufficient_baseline"]
+    persistence_score: float = Field(ge=0, le=1)
+    persistence_label: Literal[
+        "persistent_candidate",
+        "recurring_candidate",
+        "insufficient_history",
+    ]
+    classification: str
+    category: EventCategory
+    nearest_facility: FacilityContext | None = None
+    temporal_history: list[TemporalHistoryPoint]
+    evidence: list[str]
+    data_quality: Literal["seven_day_observation", "snapshot_only"]
+
+
+class ThermalClusterCollection(BaseModel):
+    generated_at: datetime
+    observation_window_start: datetime
+    observation_window_end: datetime
+    observation_window_days: int = Field(ge=1)
+    total: int
+    returned: int
+    methodology: str
+    caveats: list[str]
+    clusters: list[ThermalClusterSummary]
+
+
+class DailyAnalyticsPoint(BaseModel):
+    date: str
+    detections: int = Field(ge=0)
+    mean_frp_mw: float = Field(ge=0)
+    industrial_context_events: int = Field(ge=0)
+
+
+class AnalyticsDashboard(BaseModel):
+    generated_at: datetime
+    observation_window_start: datetime
+    observation_window_end: datetime
+    observation_window_days: int = Field(ge=1)
+    total_events: int
+    total_clusters: int
+    persistent_candidates: int
+    recurring_candidates: int
+    elevated_clusters: int
+    unmapped_persistent_candidates: int
+    category_counts: dict[str, int]
+    severity_counts: dict[str, int]
+    daily_activity: list[DailyAnalyticsPoint]
+    top_persistent_sources: list[ThermalClusterSummary]
+    methodology: str

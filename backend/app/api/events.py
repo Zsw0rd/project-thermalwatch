@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -9,12 +9,16 @@ from app.config import get_settings
 from app.db.session import get_session
 from app.schemas.events import (
     AlertCollection,
+    AnalyticsDashboard,
     AnalyticsSummary,
     ConfidenceLabel,
+    EventCategory,
     EventCollection,
     NormalizedThermalEvent,
     PersistenceResponse,
     RefreshResponse,
+    ThermalClusterCollection,
+    ThermalClusterSummary,
 )
 from app.schemas.facilities import FacilityCollection, FacilityRefreshResponse
 from app.services.firms import (
@@ -26,6 +30,7 @@ from app.services.firms import (
 )
 from app.services.osm import load_facilities, refresh_facilities
 from app.services.persistence import persist_current_snapshot
+from app.services.temporal import analytics_dashboard, build_cluster_summaries, cluster_collection
 
 router = APIRouter(prefix="/api/v1")
 
@@ -53,9 +58,14 @@ def _filtered_events(
     min_frp: float = 0,
     bbox: str | None = None,
     source: str | None = None,
+    category: EventCategory | None = None,
+    window_hours: int | None = None,
 ) -> list[NormalizedThermalEvent]:
     bounds = _parse_bbox(bbox)
     events = load_events()
+    cutoff = None
+    if window_hours and events:
+        cutoff = max(event.acquired_at for event in events) - timedelta(hours=window_hours)
     filtered: list[NormalizedThermalEvent] = []
     for event in events:
         if confidence and event.confidence != confidence:
@@ -63,6 +73,10 @@ def _filtered_events(
         if event.frp_mw < min_frp:
             continue
         if source and event.source != source:
+            continue
+        if category and event.category != category:
+            continue
+        if cutoff and event.acquired_at < cutoff:
             continue
         if bounds:
             west, south, east, north = bounds
@@ -78,6 +92,8 @@ async def list_events(
     min_frp: Annotated[float, Query(ge=0)] = 0,
     bbox: str | None = None,
     source: str | None = None,
+    category: EventCategory | None = None,
+    window_hours: Annotated[int | None, Query(ge=1, le=24 * 31)] = None,
     offset: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=2000)] = 500,
 ) -> EventCollection:
@@ -87,6 +103,8 @@ async def list_events(
         min_frp=min_frp,
         bbox=bbox,
         source=source,
+        category=category,
+        window_hours=window_hours,
     )
     selected = all_events[offset : offset + limit]
     source_updated_at = max(
@@ -102,8 +120,8 @@ async def list_events(
         scope_limitations=[
             "Bounding-box filtering is not a precise India administrative-boundary join.",
             "FIRMS reports thermal anomalies, not confirmed fires or industrial incidents.",
-            "OSM proximity is applied; land cover and long-term history are not yet applied.",
-            "Recurrence scores only describe co-observation within the current snapshot.",
+            "OSM proximity and seven-day recurrence are applied; land cover is not yet applied.",
+            "Seven-day baselines rank candidates but are not learned long-term facility baselines.",
         ],
         total=len(all_events),
         returned=len(selected),
@@ -152,6 +170,67 @@ async def events_geojson(
 @router.get("/analytics/summary", response_model=AnalyticsSummary, tags=["analytics"])
 async def summary() -> AnalyticsSummary:
     return analytics_summary(load_events())
+
+
+@router.get(
+    "/analytics/dashboard",
+    response_model=AnalyticsDashboard,
+    tags=["analytics"],
+)
+async def dashboard_analytics() -> AnalyticsDashboard:
+    return analytics_dashboard(load_events())
+
+
+@router.get(
+    "/clusters",
+    response_model=ThermalClusterCollection,
+    tags=["thermal clusters"],
+)
+async def clusters(
+    limit: Annotated[int, Query(ge=1, le=1000)] = 100,
+    persistence_label: str | None = None,
+) -> ThermalClusterCollection:
+    return cluster_collection(
+        load_events(),
+        limit=limit,
+        persistence_label=persistence_label,
+    )
+
+
+@router.get(
+    "/clusters/{cluster_id}",
+    response_model=ThermalClusterSummary,
+    tags=["thermal clusters"],
+)
+async def get_cluster(cluster_id: str) -> ThermalClusterSummary:
+    cluster = next(
+        (
+            item
+            for item in build_cluster_summaries(load_events())
+            if item.cluster_id == cluster_id
+        ),
+        None,
+    )
+    if cluster is None:
+        raise HTTPException(status_code=404, detail="Thermal cluster not found")
+    return cluster
+
+
+@router.get(
+    "/events/{event_id}/history",
+    response_model=ThermalClusterSummary,
+    tags=["thermal events"],
+)
+async def event_history(event_id: str) -> ThermalClusterSummary:
+    event = next((item for item in load_events() if item.id == event_id), None)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Thermal event not found")
+    cluster = next(
+        item
+        for item in build_cluster_summaries(load_events())
+        if item.cluster_id == event.cluster_id
+    )
+    return cluster
 
 
 @router.get("/alerts", response_model=AlertCollection, tags=["alerts"])

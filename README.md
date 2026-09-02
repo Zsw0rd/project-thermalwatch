@@ -38,10 +38,13 @@ docker compose up --build
 ## Operational API surfaces
 
 - `GET /api/v1/events` — normalized, filterable NASA FIRMS events;
+- `GET /api/v1/events/{event_id}/history` — cluster-level temporal evidence for one event;
 - `GET /api/v1/events.geojson` — map-ready point features;
 - `GET /api/v1/facilities` — attributed OSM industrial context;
 - `GET /api/v1/alerts` — deterministic analyst-review queue, never incident confirmation;
+- `GET /api/v1/clusters` and `/clusters/{cluster_id}` — recurrence and anomaly candidate summaries;
 - `GET /api/v1/analytics/summary` — snapshot statistics;
+- `GET /api/v1/analytics/dashboard` — temporal activity and persistence analytics;
 - `POST /api/v1/ingestion/firms/refresh` and `/osm/refresh` — refresh local caches;
 - `POST /api/v1/ingestion/persist` — upsert the current snapshot into PostGIS.
 
@@ -52,8 +55,10 @@ docker compose up --build
 - normalized NOAA-20, NOAA-21, and S-NPP VIIRS data with raw fields preserved server-side;
 - OpenStreetMap proximity context for refineries, flares, power plants, steelmaking sites, and quarries;
 - conservative evidence-backed triage and one review alert per approximate 1 km grid cell;
+- seven-day active-day recurrence, spatial stability, multi-sensor support, and median/MAD anomaly features;
 - category and text filtering;
-- event selection and evidence drill-down;
+- navigable overview, alert triage, evidence-source, and temporal-analytics workspaces;
+- event selection, temporal evidence drill-down, and downloadable Markdown evidence briefs;
 - FRP, confidence, co-observation, and facility evidence;
 - visible source attribution and safety labeling;
 - responsive intelligence drawer on smaller screens;
