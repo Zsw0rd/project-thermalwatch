@@ -278,3 +278,51 @@ Advance the web product beyond the map by adding multi-day history, explainable 
 - The approximate coordinate cell is deterministic but can split one physical source or merge adjacent sources. Replace it with metric DBSCAN or HDBSCAN and evaluate against labeled sites before claiming source-level accuracy.
 - Land-cover sampling, weather/lightning corroboration, administrative-boundary clipping, alert acknowledgement state, and analyst feedback storage remain unimplemented.
 - Alert and classification metrics are rule outputs on unlabeled evidence, not measured model performance.
+
+## 2026-09-02 — Facility monitoring, historical playback, and alert lifecycle
+
+### Objective
+
+Complete three additional roadmap stages as functional web workflows: facility-centric thermal monitoring, historical observation playback, and analyst-controlled alert status.
+
+### Areas touched
+
+- alert, playback, and facility-monitor response schemas
+- deterministic alert workflow state service under `backend/app/services/alert_workflow.py`
+- facility aggregation service under `backend/app/services/facility_monitor.py`
+- cumulative playback aggregation in `backend/app/services/temporal.py`
+- FastAPI facility-monitor, playback, and alert-update endpoints
+- backend API tests
+- frontend types, API adapter/mutation client, primary navigation, alert controls, Monitor workspace, Playback workspace, and responsive styling
+- README, research/reference glossary, and this living log
+
+### Decisions and important implementation details
+
+- Added a durable local alert-state overlay in the ignored `backend/data/cache` directory so acknowledgement works in deterministic offline mode without requiring PostgreSQL. The existing PostGIS alert schema remains the production persistence target.
+- Implemented the four-state review lifecycle `requires_analyst_review → acknowledged → investigating → closed`, with reopening back to required review. Reviewer identity, note, and UTC timestamp are stored, but workflow state never changes classification confidence or source evidence.
+- Built facility monitors only from FIRMS events that already meet the conservative industrial-context rule. Each monitor preserves the exact OSM feature, daily FRP history, sensor/cluster counts, active days, median/maximum/latest FRP, persistence score, review-alert count, and an explicit association caveat.
+- Created stable opaque monitor IDs from OSM identifiers so facility detail routes do not expose slash-containing OSM keys as path segments.
+- Added daily playback frames with event IDs, detection/cell/new-cell counts, high-FRP counts, daily mean FRP, and cumulative as-of-date persistent-cell counts. Persistence in playback is calculated only from dates observed up to the selected frame.
+- Loaded the full retained event window separately from the 24-hour operational map window so playback can display each exact source observation while the default map remains focused on current evidence.
+- Added `Monitor` and `Playback` to primary navigation. Facility selection updates the site chart/evidence in place; playback includes first/last, play/pause, and date-slider controls over the existing exact-coordinate map renderer.
+- Upgraded alert rows with persistent Acknowledge, Investigate, Close, and Reopen actions plus live workflow counts.
+
+### Verification performed and result
+
+- Running API smoke check — eight UTC calendar-date playback frames over 4,143 events and 185 facility monitors; the first ranked monitor was an elevated-observed-FRP candidate in the retained evidence.
+- `.venv\\Scripts\\python.exe -m ruff check app tests` — passed.
+- `.venv\\Scripts\\python.exe -m pytest -q` — 15 tests passed, including alert state round-trip/reset, playback chronology/totals, and facility detail/caveat validation; one upstream Starlette/httpx warning remains.
+- `npm run lint` — passed.
+- `npm run build` — passed with strict TypeScript and Next.js static generation.
+- Live browser facility QA — 100 ranked monitors loaded; selecting a different facility updated its name, status, four evidence metrics, and two-series FRP chart.
+- Live browser playback QA — the latest frame displayed 568 detections, 323 newly observed cells, 42 persistent cells as-of-date, and 31 high-FRP signals; play advanced from frame one to frame two.
+- Live browser alert QA — acknowledgement changed the first item to `acknowledged`, updated counts from 50/0 to 49/1, and exposed `Investigate` as the next action; the QA item was then reset to its original state.
+- Browser diagnostics — no fresh warnings or errors across Monitor, Playback, and Events.
+
+### Known limitations / next concrete task
+
+- Local alert workflow storage is single-process file state. Production should persist reviews in PostGIS with authenticated user IDs, optimistic concurrency, and an audit history rather than overwriting the current state.
+- Facility association still uses representative-point proximity, not facility polygon containment. A mapped nearby feature can be unrelated to an observation.
+- The retained seven-day window supports demonstration playback, not seasonal analysis. Scheduled archival ingestion is required for 30/90-day playback and learned baselines.
+- Playback is observation timing, not a fire-spread model. Cluster evolution metrics need validated spatial clustering before area-growth claims are introduced.
+- Role-based access, analyst notes UI, notification delivery, land-cover enrichment, and measured model evaluation remain future stages.

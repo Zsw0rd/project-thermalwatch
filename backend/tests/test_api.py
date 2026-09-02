@@ -96,3 +96,60 @@ def test_cluster_and_analytics_dashboards_are_evidence_bounded() -> None:
     assert analytics["total_clusters"] > 0
     assert len(analytics["daily_activity"]) >= 7
     assert "no trained ml" in analytics["methodology"].lower()
+
+
+def test_playback_frames_are_temporal_and_evidence_bounded() -> None:
+    response = client.get("/api/v1/playback")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total_events"] > 0
+    assert len(payload["frames"]) >= 7
+    assert [frame["date"] for frame in payload["frames"]] == sorted(
+        frame["date"] for frame in payload["frames"]
+    )
+    assert sum(frame["detection_count"] for frame in payload["frames"]) == payload[
+        "total_events"
+    ]
+    assert "not fire spread" in " ".join(payload["caveats"]).lower()
+
+
+def test_facility_monitors_expose_observed_history_without_causation_claims() -> None:
+    response = client.get("/api/v1/facility-monitors", params={"limit": 5})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] >= payload["returned"] == 5
+    monitor = payload["monitors"][0]
+    assert monitor["history"]
+    assert monitor["facility"]["osm_id"]
+    assert "does not establish" in monitor["caveat"].lower()
+
+    detail = client.get(f"/api/v1/facility-monitors/{monitor['monitor_id']}")
+    assert detail.status_code == 200
+    assert detail.json()["monitor_id"] == monitor["monitor_id"]
+
+
+def test_alert_review_lifecycle_round_trip() -> None:
+    alerts = client.get("/api/v1/alerts").json()["alerts"]
+    alert_id = alerts[0]["id"]
+    acknowledged = client.patch(
+        f"/api/v1/alerts/{alert_id}",
+        json={
+            "status": "acknowledged",
+            "note": "Reviewed in automated API test",
+            "reviewed_by": "pytest",
+        },
+    )
+    assert acknowledged.status_code == 200
+    assert acknowledged.json()["review_status"] == "acknowledged"
+    assert acknowledged.json()["reviewed_at"] is not None
+
+    refreshed = client.get("/api/v1/alerts").json()["alerts"]
+    reviewed = next(alert for alert in refreshed if alert["id"] == alert_id)
+    assert reviewed["review_status"] == "acknowledged"
+
+    reset = client.patch(
+        f"/api/v1/alerts/{alert_id}",
+        json={"status": "requires_analyst_review", "reviewed_by": "pytest"},
+    )
+    assert reset.status_code == 200
+    assert reset.json()["review_status"] == "requires_analyst_review"

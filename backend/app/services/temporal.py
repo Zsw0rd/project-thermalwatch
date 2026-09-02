@@ -8,6 +8,8 @@ from app.schemas.events import (
     AnalyticsDashboard,
     DailyAnalyticsPoint,
     NormalizedThermalEvent,
+    PlaybackCollection,
+    PlaybackFrame,
     ThermalClusterCollection,
     ThermalClusterSummary,
 )
@@ -190,4 +192,62 @@ def analytics_dashboard(events: list[NormalizedThermalEvent]) -> AnalyticsDashbo
             "Observed FIRMS/OSM seven-day evidence with deterministic persistence and robust "
             "median/MAD anomaly features; no trained ML or land-cover evidence is claimed."
         ),
+    )
+
+
+def playback_collection(events: list[NormalizedThermalEvent]) -> PlaybackCollection:
+    start, end, _ = _window(events)
+    daily: dict[str, list[NormalizedThermalEvent]] = defaultdict(list)
+    first_date_by_cluster: dict[str, str] = {}
+    for event in events:
+        date = event.acquired_at.date().isoformat()
+        daily[date].append(event)
+        current = first_date_by_cluster.get(event.cluster_id)
+        if current is None or date < current:
+            first_date_by_cluster[event.cluster_id] = date
+
+    observed_dates_by_cluster: dict[str, set[str]] = defaultdict(set)
+    frames: list[PlaybackFrame] = []
+    for date, members in sorted(daily.items()):
+        for event in members:
+            observed_dates_by_cluster[event.cluster_id].add(date)
+        frames.append(
+            PlaybackFrame(
+                date=date,
+                detection_count=len(members),
+                cluster_count=len({event.cluster_id for event in members}),
+                new_cluster_count=len(
+                    {
+                        event.cluster_id
+                        for event in members
+                        if first_date_by_cluster[event.cluster_id] == date
+                    }
+                ),
+                active_persistent_cells=sum(
+                    len(observed_dates) >= 4
+                    for observed_dates in observed_dates_by_cluster.values()
+                ),
+                high_frp_count=sum(event.frp_mw >= 20 for event in members),
+                mean_frp_mw=round(
+                    sum(event.frp_mw for event in members) / len(members),
+                    2,
+                ),
+                event_ids=[event.id for event in members],
+            )
+        )
+    return PlaybackCollection(
+        generated_at=datetime.now(UTC),
+        observation_window_start=start,
+        observation_window_end=end,
+        total_events=len(events),
+        methodology=(
+            "Each frame contains FIRMS observations acquired on one UTC calendar date. "
+            "Persistent-cell counts are calculated cumulatively using four observed dates."
+        ),
+        caveats=[
+            "A seven-day rolling feed may touch eight partial UTC calendar dates.",
+            "Playback shows observation timing, not fire spread or confirmed incident evolution.",
+            "Approximate one-kilometre cell recurrence is an engineering heuristic.",
+        ],
+        frames=frames,
     )

@@ -87,6 +87,9 @@ These values are starting points and must be validated with real data:
 - Industrial-context thresholds are engineering assumptions: 3 km for refineries, flares, and steelmaking; 2 km for power plants and quarries. They are intentionally conservative starting values and require regional validation.
 - Current alert thresholds are engineering assumptions: FRP >= 20 MW with industrial context or multi-source co-observation, otherwise FRP >= 50 MW. Alerts are triage items, not incident claims.
 - Current persistence weights are engineering assumptions: 45% active-day ratio, 20% detection density, 20% spatial stability, and 15% multi-sensor support. A persistent candidate additionally requires at least four active days in a window of at least five days and score >= 0.65.
+- Facility monitors include only observations already promoted by the conservative industrial-context proximity rule. Their status describes observed thermal evidence near an OSM feature; it is not a facility operating-state claim.
+- Playback's `active_persistent_cells` is calculated as-of each frame from approximate cells observed on at least four distinct dates. It deliberately does not use future frames, but the spatial cell remains an engineering heuristic.
+- Alert lifecycle state is analyst workflow metadata, not additional physical evidence. Acknowledging, investigating, or closing an item must never increase classification confidence.
 
 ## Glossary
 
@@ -110,6 +113,10 @@ A thermal anomaly whose representative coordinate is within the configured dista
 
 Multiple detections or sensor feeds associated with the same approximate grid cell in the current source window. Co-observation can corroborate that a thermal signal was recorded, but it is not the same as multi-day persistence.
 
+### Alert acknowledgement workflow
+
+The human-review state attached to a generated alert: requires review, acknowledged, investigating, or closed. It records workflow progress only and does not validate the alert's interpretation.
+
 ### Brightness temperature
 
 The temperature a perfect emitter would need to have to produce the measured radiance in a sensor band. It is derived from radiance and is not necessarily the physical surface temperature.
@@ -130,6 +137,10 @@ A human-readable explanation connecting a prediction to supporting facts such as
 
 NASA's Fire Information for Resource Management System. It distributes satellite-derived active-fire and thermal-anomaly observations.
 
+### Facility monitor
+
+A facility-centric aggregation of FIRMS observations that meet the configured proximity rule for one mapped OSM feature. The monitor summarizes evidence near that feature; it does not establish ownership, causation, or the facility's real operating condition.
+
 ### FRP — Fire Radiative Power
 
 An estimate, commonly expressed in megawatts, of the rate of radiative energy emitted by an active fire or thermal source. FRP contributes evidence but cannot determine event type by itself.
@@ -145,6 +156,10 @@ A high-confidence reference label used to evaluate a model. Rule-generated label
 ### Haversine distance
 
 An approximate great-circle distance between two latitude/longitude positions on a sphere. It avoids applying ordinary flat Euclidean distance directly to raw degrees.
+
+### Historical observation playback
+
+A sequence of UTC-date frames showing when retained FIRMS observations were acquired. It supports temporal comparison but is not a reconstruction of confirmed fire spread or incident evolution.
 
 ### Land cover
 

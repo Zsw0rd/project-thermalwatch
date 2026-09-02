@@ -2,7 +2,9 @@ import type {
   AnalyticsDashboard,
   DashboardDataset,
   EventClass,
+  FacilityMonitor,
   IndustrialFacility,
+  PlaybackFrame,
   ReviewAlert,
   ThermalEvent,
   ThermalClusterSummary,
@@ -103,6 +105,60 @@ type ApiAlertCollection = {
     acquired_at: string;
     frp_mw: number;
     evidence: string[];
+    review_status: ReviewAlert["reviewStatus"];
+    review_note: string | null;
+    reviewed_by: string | null;
+    reviewed_at: string | null;
+  }>;
+};
+
+type ApiPlaybackCollection = {
+  frames: Array<{
+    date: string;
+    detection_count: number;
+    cluster_count: number;
+    new_cluster_count: number;
+    active_persistent_cells: number;
+    high_frp_count: number;
+    mean_frp_mw: number;
+    event_ids: string[];
+  }>;
+};
+
+type ApiFacilityMonitorCollection = {
+  monitors: Array<{
+    monitor_id: string;
+    facility: {
+      osm_id: string;
+      name: string;
+      facility_type: string;
+      latitude: number;
+      longitude: number;
+      operator: string | null;
+    };
+    representative_event_id: string;
+    observed_detections: number;
+    cluster_count: number;
+    sensor_count: number;
+    active_days: number;
+    observation_window_days: number;
+    first_seen: string;
+    last_seen: string;
+    median_frp_mw: number;
+    maximum_frp_mw: number;
+    latest_frp_mw: number;
+    persistence_score: number;
+    anomaly_status: FacilityMonitor["anomalyStatus"];
+    operating_status: FacilityMonitor["operatingStatus"];
+    alert_count: number;
+    history: Array<{
+      date: string;
+      detection_count: number;
+      mean_frp_mw: number;
+      max_frp_mw: number;
+    }>;
+    evidence: string[];
+    caveat: string;
   }>;
 };
 
@@ -193,6 +249,8 @@ const adaptOperationalEvent = (event: ApiEvidenceEvent): ThermalEvent => {
           : event.cluster_sensor_count >= 2
             ? "Cross-sensor corroboration"
             : "Context enrichment pending",
+    acquiredAt: event.acquired_at,
+    firstSeen: event.first_seen,
     detectedAt: acquired.toLocaleString("en-IN", {
       dateStyle: "medium",
       timeStyle: "short",
@@ -314,9 +372,70 @@ const adaptAnalytics = (body: ApiAnalyticsDashboard): AnalyticsDashboard => ({
   methodology: body.methodology,
 });
 
+const adaptPlayback = (body: ApiPlaybackCollection): PlaybackFrame[] =>
+  body.frames.map((frame) => ({
+    date: frame.date,
+    detectionCount: frame.detection_count,
+    clusterCount: frame.cluster_count,
+    newClusterCount: frame.new_cluster_count,
+    activePersistentCells: frame.active_persistent_cells,
+    highFrpCount: frame.high_frp_count,
+    meanFrp: frame.mean_frp_mw,
+    eventIds: frame.event_ids,
+  }));
+
+const adaptFacilityMonitor = (
+  monitor: ApiFacilityMonitorCollection["monitors"][number],
+): FacilityMonitor => ({
+  monitorId: monitor.monitor_id,
+  facility: {
+    id: monitor.facility.osm_id,
+    name: monitor.facility.name,
+    facilityType: monitor.facility.facility_type,
+    coordinates: [monitor.facility.longitude, monitor.facility.latitude],
+    operator: monitor.facility.operator ?? undefined,
+  },
+  representativeEventId: monitor.representative_event_id,
+  observedDetections: monitor.observed_detections,
+  clusterCount: monitor.cluster_count,
+  sensorCount: monitor.sensor_count,
+  activeDays: monitor.active_days,
+  observationWindowDays: monitor.observation_window_days,
+  firstSeen: monitor.first_seen,
+  lastSeen: monitor.last_seen,
+  medianFrp: monitor.median_frp_mw,
+  maximumFrp: monitor.maximum_frp_mw,
+  latestFrp: monitor.latest_frp_mw,
+  persistenceScore: monitor.persistence_score,
+  anomalyStatus: monitor.anomaly_status,
+  operatingStatus: monitor.operating_status,
+  alertCount: monitor.alert_count,
+  history: monitor.history.map((point) => ({
+    date: point.date,
+    detectionCount: point.detection_count,
+    meanFrp: point.mean_frp_mw,
+    maxFrp: point.max_frp_mw,
+  })),
+  evidence: monitor.evidence,
+  caveat: monitor.caveat,
+});
+
 export async function fetchOperationalEvents(signal?: AbortSignal): Promise<DashboardDataset> {
-  const [eventResponse, facilityResponse, alertResponse, clusterResponse, analyticsResponse] = await Promise.all([
+  const [
+    eventResponse,
+    historyResponse,
+    facilityResponse,
+    alertResponse,
+    clusterResponse,
+    analyticsResponse,
+    playbackResponse,
+    monitorResponse,
+  ] = await Promise.all([
     fetch(`${API_BASE_URL}/events?min_frp=1&window_hours=24&limit=2000`, {
+      signal,
+      cache: "no-store",
+    }),
+    fetch(`${API_BASE_URL}/events?limit=5000`, {
       signal,
       cache: "no-store",
     }),
@@ -330,11 +449,16 @@ export async function fetchOperationalEvents(signal?: AbortSignal): Promise<Dash
     }),
     fetch(`${API_BASE_URL}/clusters?limit=100`, { signal, cache: "no-store" }),
     fetch(`${API_BASE_URL}/analytics/dashboard`, { signal, cache: "no-store" }),
+    fetch(`${API_BASE_URL}/playback`, { signal, cache: "no-store" }),
+    fetch(`${API_BASE_URL}/facility-monitors?limit=100`, { signal, cache: "no-store" }),
   ]);
   if (!eventResponse.ok) {
     throw new Error(`ThermalWatch API returned ${eventResponse.status}`);
   }
   const body = (await eventResponse.json()) as ApiEventCollection;
+  const historyBody: ApiEventCollection = historyResponse.ok
+    ? ((await historyResponse.json()) as ApiEventCollection)
+    : body;
   const facilityBody: ApiFacilityCollection = facilityResponse.ok
     ? ((await facilityResponse.json()) as ApiFacilityCollection)
     : { total: 0, facilities: [] };
@@ -347,6 +471,12 @@ export async function fetchOperationalEvents(signal?: AbortSignal): Promise<Dash
   const analyticsBody = analyticsResponse.ok
     ? ((await analyticsResponse.json()) as ApiAnalyticsDashboard)
     : null;
+  const playbackBody: ApiPlaybackCollection = playbackResponse.ok
+    ? ((await playbackResponse.json()) as ApiPlaybackCollection)
+    : { frames: [] };
+  const monitorBody: ApiFacilityMonitorCollection = monitorResponse.ok
+    ? ((await monitorResponse.json()) as ApiFacilityMonitorCollection)
+    : { monitors: [] };
   const facilities: IndustrialFacility[] = facilityBody.facilities.map((facility) => ({
     id: facility.osm_id,
     name: facility.name,
@@ -365,11 +495,15 @@ export async function fetchOperationalEvents(signal?: AbortSignal): Promise<Dash
     acquiredAt: alert.acquired_at,
     frp: alert.frp_mw,
     evidence: alert.evidence,
+    reviewStatus: alert.review_status,
+    reviewNote: alert.review_note,
+    reviewedBy: alert.reviewed_by,
+    reviewedAt: alert.reviewed_at,
   }));
   return {
     events: body.events.map(adaptOperationalEvent),
     facilities,
-    alertCount: alertBody.total,
+    alertCount: alerts.filter((alert) => alert.reviewStatus !== "closed").length,
     total: body.total,
     returned: body.returned,
     sourceUpdatedAt: body.source_updated_at,
@@ -377,5 +511,41 @@ export async function fetchOperationalEvents(signal?: AbortSignal): Promise<Dash
     clusters: clusterBody.clusters.map(adaptCluster),
     alerts,
     analytics: analyticsBody ? adaptAnalytics(analyticsBody) : null,
+    historicalEvents: historyBody.events.map(adaptOperationalEvent),
+    playback: adaptPlayback(playbackBody),
+    facilityMonitors: monitorBody.monitors.map(adaptFacilityMonitor),
+  };
+}
+
+export async function updateAlertReview(
+  alertId: string,
+  status: ReviewAlert["reviewStatus"],
+): Promise<ReviewAlert> {
+  const response = await fetch(`${API_BASE_URL}/alerts/${alertId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      status,
+      note: "Updated from the ThermalWatch analyst workspace",
+      reviewed_by: "web_analyst",
+    }),
+  });
+  if (!response.ok) throw new Error(`Alert update failed with ${response.status}`);
+  const alert = (await response.json()) as ApiAlertCollection["alerts"][number];
+  return {
+    id: alert.id,
+    eventId: alert.event_id,
+    clusterId: alert.cluster_id,
+    alertType: alert.alert_type,
+    severity: alert.severity,
+    title: alert.title,
+    reason: alert.reason,
+    acquiredAt: alert.acquired_at,
+    frp: alert.frp_mw,
+    evidence: alert.evidence,
+    reviewStatus: alert.review_status,
+    reviewNote: alert.review_note,
+    reviewedBy: alert.reviewed_by,
+    reviewedAt: alert.reviewed_at,
   };
 }

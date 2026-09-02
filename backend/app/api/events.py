@@ -9,6 +9,8 @@ from app.config import get_settings
 from app.db.session import get_session
 from app.schemas.events import (
     AlertCollection,
+    AlertPreview,
+    AlertReviewUpdate,
     AnalyticsDashboard,
     AnalyticsSummary,
     ConfidenceLabel,
@@ -16,11 +18,19 @@ from app.schemas.events import (
     EventCollection,
     NormalizedThermalEvent,
     PersistenceResponse,
+    PlaybackCollection,
     RefreshResponse,
     ThermalClusterCollection,
     ThermalClusterSummary,
 )
-from app.schemas.facilities import FacilityCollection, FacilityRefreshResponse
+from app.schemas.facilities import (
+    FacilityCollection,
+    FacilityMonitorCollection,
+    FacilityMonitorSummary,
+    FacilityRefreshResponse,
+)
+from app.services.alert_workflow import apply_alert_review_states, update_alert_review
+from app.services.facility_monitor import build_facility_monitors, facility_monitor_collection
 from app.services.firms import (
     alert_previews,
     analytics_summary,
@@ -30,7 +40,12 @@ from app.services.firms import (
 )
 from app.services.osm import load_facilities, refresh_facilities
 from app.services.persistence import persist_current_snapshot
-from app.services.temporal import analytics_dashboard, build_cluster_summaries, cluster_collection
+from app.services.temporal import (
+    analytics_dashboard,
+    build_cluster_summaries,
+    cluster_collection,
+    playback_collection,
+)
 
 router = APIRouter(prefix="/api/v1")
 
@@ -95,7 +110,7 @@ async def list_events(
     category: EventCategory | None = None,
     window_hours: Annotated[int | None, Query(ge=1, le=24 * 31)] = None,
     offset: Annotated[int, Query(ge=0)] = 0,
-    limit: Annotated[int, Query(ge=1, le=2000)] = 500,
+    limit: Annotated[int, Query(ge=1, le=5000)] = 500,
 ) -> EventCollection:
     settings = get_settings()
     all_events = _filtered_events(
@@ -181,6 +196,11 @@ async def dashboard_analytics() -> AnalyticsDashboard:
     return analytics_dashboard(load_events())
 
 
+@router.get("/playback", response_model=PlaybackCollection, tags=["analytics"])
+async def playback() -> PlaybackCollection:
+    return playback_collection(load_events())
+
+
 @router.get(
     "/clusters",
     response_model=ThermalClusterCollection,
@@ -235,7 +255,23 @@ async def event_history(event_id: str) -> ThermalClusterSummary:
 
 @router.get("/alerts", response_model=AlertCollection, tags=["alerts"])
 async def alerts() -> AlertCollection:
-    return alert_previews(load_events())
+    collection = alert_previews(load_events())
+    return collection.model_copy(
+        update={"alerts": apply_alert_review_states(collection.alerts)}
+    )
+
+
+@router.patch(
+    "/alerts/{alert_id}",
+    response_model=AlertPreview,
+    tags=["alerts"],
+)
+def update_alert(alert_id: str, update: AlertReviewUpdate) -> AlertPreview:
+    collection = alert_previews(load_events())
+    alert = next((item for item in collection.alerts if item.id == alert_id), None)
+    if alert is None:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    return update_alert_review(alert, update)
 
 
 @router.get("/sources", tags=["system"])
@@ -245,7 +281,7 @@ async def sources() -> dict[str, object]:
         "provider": "NASA FIRMS",
         "active_sources": sorted({event.source for event in load_events()}),
         "authenticated_area_api_configured": bool(settings.firms_map_key),
-        "fallback": "Official public South Asia 24-hour VIIRS CSV feeds",
+        "fallback": "Official public South Asia seven-day VIIRS CSV feeds",
         "attribution_required": True,
     }
 
@@ -262,6 +298,40 @@ async def facilities(
         total=len(all_items),
         facilities=items,
     )
+
+
+@router.get(
+    "/facility-monitors",
+    response_model=FacilityMonitorCollection,
+    tags=["industrial context"],
+)
+async def facility_monitors(
+    limit: Annotated[int, Query(ge=1, le=500)] = 100,
+) -> FacilityMonitorCollection:
+    return facility_monitor_collection(
+        load_events(),
+        load_facilities(),
+        limit=limit,
+    )
+
+
+@router.get(
+    "/facility-monitors/{monitor_id}",
+    response_model=FacilityMonitorSummary,
+    tags=["industrial context"],
+)
+async def facility_monitor(monitor_id: str) -> FacilityMonitorSummary:
+    monitor = next(
+        (
+            item
+            for item in build_facility_monitors(load_events(), load_facilities())
+            if item.monitor_id == monitor_id
+        ),
+        None,
+    )
+    if monitor is None:
+        raise HTTPException(status_code=404, detail="Facility monitor not found")
+    return monitor
 
 
 @router.post(

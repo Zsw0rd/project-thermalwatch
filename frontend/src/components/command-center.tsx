@@ -6,20 +6,26 @@ import {
   AlertTriangle,
   Bell,
   ChevronRight,
+  CheckCircle2,
   CircleDot,
   Clock3,
   Database,
   Flame,
+  Factory,
   Focus,
   Gauge,
   Grid3X3,
   Layers3,
-  Map,
+  Map as MapIcon,
   Menu,
+  Pause,
+  Play,
   Radar,
   Satellite,
   Search,
   ShieldCheck,
+  SkipBack,
+  SkipForward,
   SlidersHorizontal,
   Sparkles,
   Target,
@@ -36,11 +42,14 @@ import {
   YAxis,
 } from "recharts";
 import { CLASS_META, DEMO_EVENTS } from "@/lib/demo-data";
-import { fetchOperationalEvents } from "@/lib/api";
+import { fetchOperationalEvents, updateAlertReview } from "@/lib/api";
 import type {
   AnalyticsDashboard,
   DashboardDataset,
   EventClass,
+  FacilityMonitor,
+  IndustrialFacility,
+  PlaybackFrame,
   ReviewAlert,
   ThermalClusterSummary,
   ThermalEvent,
@@ -52,6 +61,8 @@ type Filter = "all" | EventClass;
 const NAV_ITEMS: { label: string; icon: LucideIcon }[] = [
   { label: "Overview", icon: Radar },
   { label: "Events", icon: Flame },
+  { label: "Monitor", icon: Factory },
+  { label: "Playback", icon: Play },
   { label: "Sources", icon: Target },
   { label: "Analytics", icon: Activity },
 ];
@@ -273,10 +284,37 @@ function EvidencePanel({ event }: { event: ThermalEvent }) {
   );
 }
 
-function AlertsWorkspace({ alerts }: { alerts: ReviewAlert[] }) {
-  const critical = alerts.filter((alert) => alert.severity === "critical").length;
-  const baseline = alerts.filter((alert) => alert.alertType === "elevated_industrial_baseline").length;
-  const unmapped = alerts.filter((alert) => alert.alertType === "persistent_unknown_source").length;
+function AlertsWorkspace({
+  alerts,
+  onUpdate,
+}: {
+  alerts: ReviewAlert[];
+  onUpdate: (alertId: string, status: ReviewAlert["reviewStatus"]) => Promise<void>;
+}) {
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const statuses: ReviewAlert["reviewStatus"][] = [
+    "requires_analyst_review",
+    "acknowledged",
+    "investigating",
+    "closed",
+  ];
+  const counts = Object.fromEntries(
+    statuses.map((status) => [status, alerts.filter((alert) => alert.reviewStatus === status).length]),
+  ) as Record<ReviewAlert["reviewStatus"], number>;
+  const nextAction = (status: ReviewAlert["reviewStatus"]) => ({
+    requires_analyst_review: { label: "Acknowledge", next: "acknowledged" },
+    acknowledged: { label: "Investigate", next: "investigating" },
+    investigating: { label: "Close review", next: "closed" },
+    closed: { label: "Reopen", next: "requires_analyst_review" },
+  } as const)[status];
+  const applyUpdate = async (alert: ReviewAlert) => {
+    setPendingId(alert.id);
+    try {
+      await onUpdate(alert.id, nextAction(alert.reviewStatus).next);
+    } finally {
+      setPendingId(null);
+    }
+  };
   return (
     <section className="stage-workspace">
       <div className="stage-header">
@@ -284,12 +322,13 @@ function AlertsWorkspace({ alerts }: { alerts: ReviewAlert[] }) {
           <p className="eyebrow">Analyst review workflow</p>
           <h2>Alert triage</h2>
         </div>
-        <span className="stage-badge">{alerts.length} open review items</span>
+        <span className="stage-badge">{alerts.length - counts.closed} active review items</span>
       </div>
-      <div className="stage-metrics">
-        <div><span>Critical intensity</span><strong>{critical}</strong></div>
-        <div><span>Baseline deviations</span><strong>{baseline}</strong></div>
-        <div><span>Unmapped persistent</span><strong>{unmapped}</strong></div>
+      <div className="stage-metrics stage-metrics-four">
+        <div><span>Requires review</span><strong>{counts.requires_analyst_review}</strong></div>
+        <div><span>Acknowledged</span><strong>{counts.acknowledged}</strong></div>
+        <div><span>Investigating</span><strong>{counts.investigating}</strong></div>
+        <div><span>Closed</span><strong>{counts.closed}</strong></div>
       </div>
       <div className="stage-table custom-scrollbar">
         {alerts.map((alert) => (
@@ -309,11 +348,158 @@ function AlertsWorkspace({ alerts }: { alerts: ReviewAlert[] }) {
                 <span>{alert.alertType.replaceAll("_", " ")}</span>
               </div>
             </div>
-            <span className="review-chip">Requires review</span>
+            <div className="alert-workflow-actions">
+              <span className={`review-chip status-${alert.reviewStatus}`}>{alert.reviewStatus.replaceAll("_", " ")}</span>
+              <button type="button" disabled={pendingId === alert.id} onClick={() => applyUpdate(alert)}>
+                {alert.reviewStatus === "closed" ? <CheckCircle2 size={11} /> : <ChevronRight size={11} />}
+                {pendingId === alert.id ? "Saving…" : nextAction(alert.reviewStatus).label}
+              </button>
+            </div>
           </article>
         ))}
       </div>
       <p className="stage-footnote">Alert rules prioritize evidence for human review. They do not confirm a fire, accident, or responsible facility.</p>
+    </section>
+  );
+}
+
+function FacilityMonitorWorkspace({ monitors }: { monitors: FacilityMonitor[] }) {
+  const [selectedMonitorId, setSelectedMonitorId] = useState(monitors[0]?.monitorId ?? "");
+  const chartId = `facility-frp-${useId().replaceAll(":", "")}`;
+  const selected = monitors.find((monitor) => monitor.monitorId === selectedMonitorId) ?? monitors[0];
+  if (!selected) {
+    return <section className="stage-workspace grid place-items-center text-sm text-slate-500">No industrial-context monitors are available.</section>;
+  }
+  const statusLabel = selected.operatingStatus.replaceAll("_", " ");
+  return (
+    <section className="stage-workspace">
+      <div className="stage-header">
+        <div><p className="eyebrow">Facility-centric intelligence</p><h2>Industrial facility monitor</h2></div>
+        <span className="stage-badge">{monitors.length} attributed sites ranked</span>
+      </div>
+      <div className="monitor-workspace">
+        <aside className="monitor-list custom-scrollbar">
+          <p className="eyebrow">Observed facilities</p>
+          {monitors.map((monitor) => (
+            <button
+              type="button"
+              key={monitor.monitorId}
+              className={monitor.monitorId === selected.monitorId ? "is-selected" : ""}
+              onClick={() => setSelectedMonitorId(monitor.monitorId)}
+            >
+              <span><b>{monitor.facility.name}</b><small>{monitor.facility.facilityType.replaceAll("_", " ")}</small></span>
+              <span><strong>{monitor.activeDays}/{monitor.observationWindowDays}</strong><small>active</small></span>
+            </button>
+          ))}
+        </aside>
+        <section className="monitor-detail">
+          <div className="monitor-title">
+            <div>
+              <p className="eyebrow">{selected.facility.facilityType.replaceAll("_", " ")} · OpenStreetMap</p>
+              <h3>{selected.facility.name}</h3>
+              <span>{selected.facility.operator ?? "Operator not present in mapped context"} · {selected.facility.coordinates[1].toFixed(4)}°N, {selected.facility.coordinates[0].toFixed(4)}°E</span>
+            </div>
+            <span className={selected.operatingStatus === "elevated_observed_frp" ? "monitor-status is-elevated" : "monitor-status"}>{statusLabel}</span>
+          </div>
+          <div className="monitor-metrics">
+            <div><span>Detections</span><strong>{selected.observedDetections}</strong><small>{selected.clusterCount} thermal cells</small></div>
+            <div><span>Active days</span><strong>{selected.activeDays}/{selected.observationWindowDays}</strong><small>{selected.sensorCount} VIIRS feeds</small></div>
+            <div><span>Median FRP</span><strong>{selected.medianFrp.toFixed(2)} MW</strong><small>{selected.maximumFrp.toFixed(2)} MW maximum</small></div>
+            <div><span>Review alerts</span><strong>{selected.alertCount}</strong><small>{Math.round(selected.persistenceScore * 100)}% persistence</small></div>
+          </div>
+          <div className="monitor-lower-grid">
+            <section className="monitor-chart">
+              <div className="flex items-center justify-between"><p className="eyebrow">Observed facility-proximate FRP</p><span>daily mean / maximum</span></div>
+              <div className="h-52">
+                <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
+                  <AreaChart data={selected.history} margin={{ top: 18, right: 8, left: -20, bottom: 0 }}>
+                    <defs><linearGradient id={chartId} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#ff6b35" stopOpacity={0.3} /><stop offset="100%" stopColor="#ff6b35" stopOpacity={0} /></linearGradient></defs>
+                    <CartesianGrid stroke="#ffffff0a" vertical={false} />
+                    <XAxis dataKey="date" tick={{ fill: "#586675", fontSize: 8 }} tickLine={false} axisLine={false} />
+                    <YAxis tick={{ fill: "#586675", fontSize: 8 }} tickLine={false} axisLine={false} />
+                    <Tooltip contentStyle={{ background: "#0b151e", border: "1px solid #ffffff14", borderRadius: 2, fontSize: 10 }} />
+                    <Area type="monotone" dataKey="maxFrp" stroke="#f7bf4f" fill="transparent" strokeWidth={1} strokeDasharray="3 3" />
+                    <Area type="monotone" dataKey="meanFrp" stroke="#ff6b35" strokeWidth={2} fill={`url(#${chartId})`} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </section>
+            <section className="monitor-evidence">
+              <p className="eyebrow">Facility evidence</p>
+              {selected.evidence.map((item) => <p key={item}><ShieldCheck size={12} /> {item}</p>)}
+              <small>{selected.caveat}</small>
+            </section>
+          </div>
+        </section>
+      </div>
+    </section>
+  );
+}
+
+function PlaybackWorkspace({
+  frames,
+  events,
+  facilities,
+}: {
+  frames: PlaybackFrame[];
+  events: ThermalEvent[];
+  facilities: IndustrialFacility[];
+}) {
+  const [frameIndex, setFrameIndex] = useState(Math.max(0, frames.length - 1));
+  const [isPlaying, setIsPlaying] = useState(false);
+  useEffect(() => {
+    if (!isPlaying || !frames.length) return;
+    const timer = window.setInterval(() => {
+      setFrameIndex((current) => {
+        if (current >= frames.length - 1) {
+          setIsPlaying(false);
+          return current;
+        }
+        return current + 1;
+      });
+    }, 1100);
+    return () => window.clearInterval(timer);
+  }, [isPlaying, frames.length]);
+  const frame = frames[frameIndex];
+  const eventById = useMemo(() => new Map(events.map((event) => [event.id, event])), [events]);
+  const frameEvents = useMemo(
+    () => frame?.eventIds.map((id) => eventById.get(id)).filter((event): event is ThermalEvent => Boolean(event)) ?? [],
+    [eventById, frame],
+  );
+  if (!frame) {
+    return <section className="stage-workspace grid place-items-center text-sm text-slate-500">Playback frames are unavailable.</section>;
+  }
+  return (
+    <section className="stage-workspace playback-stage">
+      <div className="stage-header">
+        <div><p className="eyebrow">Historical observation playback</p><h2>Thermal activity timeline</h2></div>
+        <span className="stage-badge">Frame {frameIndex + 1} of {frames.length} · UTC</span>
+      </div>
+      <div className="playback-metrics">
+        <div><span>Selected date</span><strong>{new Date(`${frame.date}T00:00:00Z`).toLocaleDateString("en-IN", { dateStyle: "long", timeZone: "UTC" })}</strong></div>
+        <div><span>Detections</span><strong>{frame.detectionCount}</strong></div>
+        <div><span>New cells</span><strong>{frame.newClusterCount}</strong></div>
+        <div><span>Persistent as-of date</span><strong>{frame.activePersistentCells}</strong></div>
+        <div><span>High FRP</span><strong>{frame.highFrpCount}</strong></div>
+      </div>
+      <div className="playback-map">
+        <ThermalMap
+          events={frameEvents}
+          selectedId={frameEvents[0]?.id ?? ""}
+          onSelect={() => undefined}
+          facilities={facilities}
+          showGrid
+          showSatellite
+          focusNonce={0}
+        />
+      </div>
+      <div className="timeline-control">
+        <button type="button" aria-label="First frame" onClick={() => { setIsPlaying(false); setFrameIndex(0); }}><SkipBack size={14} /></button>
+        <button type="button" className="play-toggle" aria-label={isPlaying ? "Pause playback" : "Play playback"} onClick={() => { if (frameIndex >= frames.length - 1) setFrameIndex(0); setIsPlaying((current) => !current); }}>{isPlaying ? <Pause size={14} /> : <Play size={14} />}</button>
+        <input aria-label="Playback date" type="range" min={0} max={frames.length - 1} value={frameIndex} onChange={(event) => { setIsPlaying(false); setFrameIndex(Number(event.target.value)); }} />
+        <button type="button" aria-label="Last frame" onClick={() => { setIsPlaying(false); setFrameIndex(frames.length - 1); }}><SkipForward size={14} /></button>
+      </div>
+      <p className="stage-footnote">Playback displays when NASA FIRMS observations were acquired. It does not represent confirmed fire spread or incident evolution.</p>
     </section>
   );
 }
@@ -518,9 +704,27 @@ export function CommandCenter() {
     if (window.innerWidth < 1120) setMobileIntelOpen(true);
   };
 
+  const handleAlertReview = async (
+    alertId: string,
+    status: ReviewAlert["reviewStatus"],
+  ) => {
+    const updated = await updateAlertReview(alertId, status);
+    setOperationalDataset((current) => {
+      if (!current) return current;
+      const alerts = current.alerts.map((alert) => alert.id === updated.id ? updated : alert);
+      return {
+        ...current,
+        alerts,
+        alertCount: alerts.filter((alert) => alert.reviewStatus !== "closed").length,
+      };
+    });
+  };
+
   const viewCopy = {
     Overview: ["National operating picture", "Thermal intelligence command center", "Detection · context · persistence · classification · explanation"],
     Events: ["Evidence-led triage", "Alert and event review", "Prioritized candidates · reason codes · human validation"],
+    Monitor: ["Facility-centric intelligence", "Industrial facility monitor", "Attributed observations · temporal status · operational context"],
+    Playback: ["Historical reconstruction", "Thermal activity playback", "Daily frames · newly observed cells · cumulative recurrence"],
     Sources: ["Provenance control", "Evidence source registry", "Readiness · attribution · known boundaries"],
     Analytics: ["Temporal analysis", "Persistence and anomaly workspace", "Observed recurrence · robust deviation · candidate ranking"],
   }[nav] ?? ["National operating picture", "Thermal intelligence command center", "Detection · context · persistence · classification · explanation"];
@@ -661,7 +865,7 @@ export function CommandCenter() {
           <section className="map-panel">
             <div className="flex h-11 items-center justify-between border-b border-white/[0.07] px-4">
               <div className="flex items-center gap-4">
-                <span className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.13em] text-slate-300"><Map size={13} /> Intelligence map</span>
+                <span className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.13em] text-slate-300"><MapIcon size={13} /> Intelligence map</span>
                 <span className="hidden text-[9px] text-slate-600 sm:inline">India · last 24 hours · all sensors</span>
               </div>
               <div className="flex items-center gap-2">
@@ -692,7 +896,15 @@ export function CommandCenter() {
           {isDesktop && <EvidencePanel event={selectedEvent} />}
         </div>}
 
-        {nav === "Events" && <AlertsWorkspace alerts={operationalDataset?.alerts ?? []} />}
+        {nav === "Events" && <AlertsWorkspace alerts={operationalDataset?.alerts ?? []} onUpdate={handleAlertReview} />}
+        {nav === "Monitor" && <FacilityMonitorWorkspace monitors={operationalDataset?.facilityMonitors ?? []} />}
+        {nav === "Playback" && (
+          <PlaybackWorkspace
+            frames={operationalDataset?.playback ?? []}
+            events={operationalDataset?.historicalEvents ?? []}
+            facilities={operationalDataset?.facilities ?? []}
+          />
+        )}
         {nav === "Sources" && <SourcesWorkspace dataset={operationalDataset} />}
         {nav === "Analytics" && (
           <AnalyticsWorkspace

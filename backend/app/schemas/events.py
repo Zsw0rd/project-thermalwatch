@@ -6,6 +6,12 @@ from pydantic import BaseModel, Field
 ConfidenceLabel = Literal["low", "nominal", "high", "unknown"]
 EventCategory = Literal["industrial", "vegetation", "agricultural", "unknown"]
 Severity = Literal["critical", "high", "medium", "low"]
+AlertReviewStatus = Literal[
+    "requires_analyst_review",
+    "acknowledged",
+    "investigating",
+    "closed",
+]
 
 
 class SourceAttribution(BaseModel):
@@ -127,7 +133,10 @@ class AlertPreview(BaseModel):
     severity: Severity
     title: str
     reason: str
-    review_status: Literal["requires_analyst_review"] = "requires_analyst_review"
+    review_status: AlertReviewStatus = "requires_analyst_review"
+    review_note: str | None = None
+    reviewed_by: str | None = None
+    reviewed_at: datetime | None = None
     acquired_at: datetime
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
@@ -141,6 +150,33 @@ class AlertCollection(BaseModel):
     total: int
     methodology: str
     alerts: list[AlertPreview]
+
+
+class AlertReviewUpdate(BaseModel):
+    status: AlertReviewStatus
+    note: str | None = Field(default=None, max_length=500)
+    reviewed_by: str = Field(default="local_analyst", min_length=1, max_length=100)
+
+
+class PlaybackFrame(BaseModel):
+    date: str
+    detection_count: int = Field(ge=0)
+    cluster_count: int = Field(ge=0)
+    new_cluster_count: int = Field(ge=0)
+    active_persistent_cells: int = Field(ge=0)
+    high_frp_count: int = Field(ge=0)
+    mean_frp_mw: float = Field(ge=0)
+    event_ids: list[str]
+
+
+class PlaybackCollection(BaseModel):
+    generated_at: datetime
+    observation_window_start: datetime
+    observation_window_end: datetime
+    total_events: int = Field(ge=0)
+    methodology: str
+    caveats: list[str]
+    frames: list[PlaybackFrame]
 
 
 class ThermalClusterSummary(BaseModel):

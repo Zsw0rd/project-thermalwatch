@@ -30,6 +30,8 @@ export type ThermalEvent = {
   confidence: number;
   severity: AlertSeverity;
   status: string;
+  acquiredAt?: string;
+  firstSeen?: string;
   detectedAt: string;
   sensor: string;
   sensorCount?: number;
@@ -73,6 +75,9 @@ export type DashboardDataset = {
   clusters: ThermalClusterSummary[];
   alerts: ReviewAlert[];
   analytics: AnalyticsDashboard | null;
+  historicalEvents: ThermalEvent[];
+  playback: PlaybackFrame[];
+  facilityMonitors: FacilityMonitor[];
 };
 
 export type ThermalClusterSummary = {
@@ -112,6 +117,51 @@ export type ReviewAlert = {
   acquiredAt: string;
   frp: number;
   evidence: string[];
+  reviewStatus: "requires_analyst_review" | "acknowledged" | "investigating" | "closed";
+  reviewNote: string | null;
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+};
+
+export type PlaybackFrame = {
+  date: string;
+  detectionCount: number;
+  clusterCount: number;
+  newClusterCount: number;
+  activePersistentCells: number;
+  highFrpCount: number;
+  meanFrp: number;
+  eventIds: string[];
+};
+
+export type FacilityThermalDay = {
+  date: string;
+  detectionCount: number;
+  meanFrp: number;
+  maxFrp: number;
+};
+
+export type FacilityMonitor = {
+  monitorId: string;
+  facility: IndustrialFacility;
+  representativeEventId: string;
+  observedDetections: number;
+  clusterCount: number;
+  sensorCount: number;
+  activeDays: number;
+  observationWindowDays: number;
+  firstSeen: string;
+  lastSeen: string;
+  medianFrp: number;
+  maximumFrp: number;
+  latestFrp: number;
+  persistenceScore: number;
+  anomalyStatus: "elevated" | "within_observed_range" | "insufficient_baseline";
+  operatingStatus: "elevated_observed_frp" | "persistent_observed_heat" | "recent_thermal_activity" | "insufficient_history";
+  alertCount: number;
+  history: FacilityThermalDay[];
+  evidence: string[];
+  caveat: string;
 };
 
 export type DailyAnalyticsPoint = {

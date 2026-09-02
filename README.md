@@ -42,9 +42,12 @@ docker compose up --build
 - `GET /api/v1/events.geojson` — map-ready point features;
 - `GET /api/v1/facilities` — attributed OSM industrial context;
 - `GET /api/v1/alerts` — deterministic analyst-review queue, never incident confirmation;
+- `PATCH /api/v1/alerts/{alert_id}` — acknowledge, investigate, close, or reopen a review item;
 - `GET /api/v1/clusters` and `/clusters/{cluster_id}` — recurrence and anomaly candidate summaries;
+- `GET /api/v1/facility-monitors` and `/facility-monitors/{monitor_id}` — facility-centric observed thermal history;
 - `GET /api/v1/analytics/summary` — snapshot statistics;
 - `GET /api/v1/analytics/dashboard` — temporal activity and persistence analytics;
+- `GET /api/v1/playback` — cumulative daily observation frames;
 - `POST /api/v1/ingestion/firms/refresh` and `/osm/refresh` — refresh local caches;
 - `POST /api/v1/ingestion/persist` — upsert the current snapshot into PostGIS.
 
@@ -58,6 +61,9 @@ docker compose up --build
 - seven-day active-day recurrence, spatial stability, multi-sensor support, and median/MAD anomaly features;
 - category and text filtering;
 - navigable overview, alert triage, evidence-source, and temporal-analytics workspaces;
+- facility-monitor workspace with site selection, observed FRP history, evidence, and status;
+- historical map playback with daily frames, newly observed cells, and cumulative recurrence;
+- persisted local alert lifecycle for acknowledgement, investigation, closure, and reopening;
 - event selection, temporal evidence drill-down, and downloadable Markdown evidence briefs;
 - FRP, confidence, co-observation, and facility evidence;
 - visible source attribution and safety labeling;
