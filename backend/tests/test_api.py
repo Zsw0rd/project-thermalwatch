@@ -171,6 +171,30 @@ def test_validation_collection_is_explicitly_non_confirmatory() -> None:
     assert all(review["incident_confirmation"] is False for review in payload["reviews"])
 
 
+def test_model_readiness_exposes_gate_without_hiding_weak_labels() -> None:
+    response = client.get("/api/v1/models/readiness")
+    assert response.status_code == 200
+    readiness = response.json()
+    assert readiness["status"] in {
+        "blocked_insufficient_reviewed_labels",
+        "ready_for_reviewed_training",
+    }
+    assert readiness["weak_label_samples"] > 0
+    assert sum(readiness["weak_label_counts"].values()) == readiness["weak_label_samples"]
+    assert readiness["feature_count"] == len(readiness["feature_names"])
+    assert "weak labels" in readiness["label_policy"].lower()
+
+
+def test_model_benchmark_endpoint_never_implies_automatic_deployment() -> None:
+    response = client.get("/api/v1/models/benchmark")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] in {"not_run", "development_only", "reviewed_evaluation"}
+    if payload["available"]:
+        assert payload["report"]["production_eligible"] is False
+        assert payload["report"]["operational_model_unchanged"] == "rules_temporal_metric_v3"
+
+
 def test_playback_frames_are_temporal_and_evidence_bounded() -> None:
     response = client.get("/api/v1/playback")
     assert response.status_code == 200

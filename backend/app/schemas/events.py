@@ -402,3 +402,40 @@ class ClusterReviewCollection(BaseModel):
     label_counts: dict[str, int]
     methodology: str
     reviews: list[ClusterReviewRecord]
+
+
+class ModelTrainingReadiness(BaseModel):
+    generated_at: datetime
+    status: Literal[
+        "blocked_insufficient_reviewed_labels",
+        "ready_for_reviewed_training",
+    ]
+    current_operational_model: str
+    current_feature_version: str
+    reviewed_records: int = Field(ge=0)
+    reviewed_clusters: int = Field(ge=0)
+    eligible_reviewed_samples: int = Field(ge=0)
+    excluded_or_uncertain_reviews: int = Field(ge=0)
+    weak_label_samples: int = Field(ge=0)
+    reviewed_label_counts: dict[str, int]
+    weak_label_counts: dict[str, int]
+    reviewed_spatial_groups: int = Field(ge=0)
+    weak_label_spatial_groups: int = Field(ge=0)
+    required_reviewed_samples: int = Field(ge=1)
+    required_samples_per_class: int = Field(ge=1)
+    required_spatial_groups_per_class: int = Field(ge=2)
+    required_classes: list[str]
+    feature_count: int = Field(ge=1)
+    feature_names: list[str]
+    candidate_models: list[str]
+    label_policy: str
+    split_policy: str
+    blockers: list[str]
+    recommended_next_action: str
+
+
+class ModelBenchmarkEnvelope(BaseModel):
+    available: bool
+    status: Literal["not_run", "development_only", "reviewed_evaluation"]
+    message: str
+    report: dict[str, object] | None = None

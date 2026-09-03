@@ -17,6 +17,12 @@ The backend filters this regional source to the configured India bounding box. B
 
 These are active-fire/thermal-anomaly observations, not confirmed incidents and not model ground truth.
 
+## Development model benchmark
+
+`model_benchmark_report.json` is a reproducible report generated from the pinned offline evidence using `ml/train_tabular.py`. It records the dataset fingerprint, 41-feature contract, complete spatial-block train/test split, candidate metrics, local compute inventory, library versions, artifact hashes, and limitations.
+
+Its current labels come from the existing deterministic classification rules, not analysts or confirmed incidents. Therefore every reported score measures weak-label agreement only. The report is safe for pipeline and UI development but is not evidence of real-world model accuracy, does not satisfy the reviewed-label gate, and cannot change the operational model automatically. Binary model files are reproducible local outputs and remain ignored under `ml/models/`.
+
 ## OpenStreetMap context snapshot
 
 `osm_india_industrial_context.json` is a bounded Overpass snapshot retrieved on **2026-09-01** from OpenStreetMap. It contains mapped refineries, flares, power plants, steelmaking sites, and quarries whose representative point or geometry center falls within the configured bounding box.

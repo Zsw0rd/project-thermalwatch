@@ -1,0 +1,452 @@
+{
+  "artifacts": [
+    {
+      "file": "model_v2_logistic.joblib",
+      "model": "model_v2_logistic",
+      "sha256": "5014a4184b8c7412f1477711dacaae90e674f7ca43cb7a1983a3e60e040e4dde"
+    },
+    {
+      "file": "model_v3_random_forest.joblib",
+      "model": "model_v3_random_forest",
+      "sha256": "602ca350096815ccebd05d72249b21febe32b6cb2a0623f26256f41d1ca18aa4"
+    },
+    {
+      "file": "model_v4_xgboost.ubj",
+      "model": "model_v4_xgboost",
+      "sha256": "071b0879cc34d4a74251dafc9d69dee86447c507bff8095058d3236f68795a7e"
+    }
+  ],
+  "candidate_models": [
+    {
+      "device": "cpu",
+      "evaluation_language": "held-out weak-label agreement; not validation accuracy",
+      "feature_importances": {
+        "active_day_ratio": 0.303439,
+        "brightness_i4_scaled": 0.323263,
+        "cluster_radius_over_epsilon": 0.202799,
+        "facility_distance_log_ratio_25km": 2.257174,
+        "land_cover_barren": 0.260143,
+        "land_cover_built_up": 0.736681,
+        "land_cover_cropland": 0.716859,
+        "land_cover_vegetation": 0.84408,
+        "land_cover_water": 0.255492,
+        "log_max_frp_mw": 0.206836,
+        "sensor_support": 0.241068,
+        "utc_hour_cos": 0.261189
+      },
+      "metrics": {
+        "balanced_accuracy": 0.947368,
+        "confusion_matrix": [
+          [
+            15,
+            1,
+            2,
+            1
+          ],
+          [
+            0,
+            30,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            152,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            6
+          ]
+        ],
+        "industrial_f1": 0.882353,
+        "industrial_precision": 1.0,
+        "industrial_recall": 0.789474,
+        "labels": [
+          "industrial",
+          "vegetation",
+          "agricultural",
+          "unknown"
+        ],
+        "macro_f1": 0.945625,
+        "macro_precision": 0.952974,
+        "macro_recall": 0.947368,
+        "per_class": {
+          "agricultural": {
+            "f1": 0.993464,
+            "precision": 0.987013,
+            "recall": 1.0,
+            "support": 152
+          },
+          "industrial": {
+            "f1": 0.882353,
+            "precision": 1.0,
+            "recall": 0.789474,
+            "support": 19
+          },
+          "unknown": {
+            "f1": 0.923077,
+            "precision": 0.857143,
+            "recall": 1.0,
+            "support": 6
+          },
+          "vegetation": {
+            "f1": 0.983607,
+            "precision": 0.967742,
+            "recall": 1.0,
+            "support": 30
+          }
+        },
+        "weighted_f1": 0.979797
+      },
+      "model": "model_v2_logistic",
+      "training_seconds": 0.024971
+    },
+    {
+      "device": "cpu",
+      "evaluation_language": "held-out weak-label agreement; not validation accuracy",
+      "feature_importances": {
+        "brightness_delta_scaled": 0.031814,
+        "brightness_i4_scaled": 0.033466,
+        "facility_distance_log_ratio_25km": 0.264141,
+        "land_cover_barren": 0.015377,
+        "land_cover_built_up": 0.080551,
+        "land_cover_cropland": 0.145995,
+        "land_cover_vegetation": 0.175477,
+        "log_latest_frp_mw": 0.027272,
+        "log_max_frp_mw": 0.024975,
+        "log_mean_frp_mw": 0.025385,
+        "log_median_frp_mw": 0.027115,
+        "persistence_score": 0.017176
+      },
+      "metrics": {
+        "balanced_accuracy": 1.0,
+        "confusion_matrix": [
+          [
+            19,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            30,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            152,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            6
+          ]
+        ],
+        "industrial_f1": 1.0,
+        "industrial_precision": 1.0,
+        "industrial_recall": 1.0,
+        "labels": [
+          "industrial",
+          "vegetation",
+          "agricultural",
+          "unknown"
+        ],
+        "macro_f1": 1.0,
+        "macro_precision": 1.0,
+        "macro_recall": 1.0,
+        "per_class": {
+          "agricultural": {
+            "f1": 1.0,
+            "precision": 1.0,
+            "recall": 1.0,
+            "support": 152
+          },
+          "industrial": {
+            "f1": 1.0,
+            "precision": 1.0,
+            "recall": 1.0,
+            "support": 19
+          },
+          "unknown": {
+            "f1": 1.0,
+            "precision": 1.0,
+            "recall": 1.0,
+            "support": 6
+          },
+          "vegetation": {
+            "f1": 1.0,
+            "precision": 1.0,
+            "recall": 1.0,
+            "support": 30
+          }
+        },
+        "weighted_f1": 1.0
+      },
+      "model": "model_v3_random_forest",
+      "training_seconds": 0.813025
+    },
+    {
+      "device": "cuda:0",
+      "evaluation_language": "held-out weak-label agreement; not validation accuracy",
+      "fallback_reason": null,
+      "feature_importances": {
+        "active_day_ratio": 0.029037,
+        "anomaly_score_available": 0.007288,
+        "brightness_i4_scaled": 0.007709,
+        "day_detection_ratio": 0.007202,
+        "detections_per_active_day": 0.006576,
+        "facility_distance_log_ratio_25km": 0.129432,
+        "facility_present": 0.044708,
+        "land_cover_built_up": 0.12533,
+        "land_cover_cropland": 0.245308,
+        "land_cover_vegetation": 0.308402,
+        "log_median_frp_mw": 0.007751,
+        "sensor_support": 0.007034
+      },
+      "metrics": {
+        "balanced_accuracy": 1.0,
+        "confusion_matrix": [
+          [
+            19,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            30,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            152,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            6
+          ]
+        ],
+        "industrial_f1": 1.0,
+        "industrial_precision": 1.0,
+        "industrial_recall": 1.0,
+        "labels": [
+          "industrial",
+          "vegetation",
+          "agricultural",
+          "unknown"
+        ],
+        "macro_f1": 1.0,
+        "macro_precision": 1.0,
+        "macro_recall": 1.0,
+        "per_class": {
+          "agricultural": {
+            "f1": 1.0,
+            "precision": 1.0,
+            "recall": 1.0,
+            "support": 152
+          },
+          "industrial": {
+            "f1": 1.0,
+            "precision": 1.0,
+            "recall": 1.0,
+            "support": 19
+          },
+          "unknown": {
+            "f1": 1.0,
+            "precision": 1.0,
+            "recall": 1.0,
+            "support": 6
+          },
+          "vegetation": {
+            "f1": 1.0,
+            "precision": 1.0,
+            "recall": 1.0,
+            "support": 30
+          }
+        },
+        "weighted_f1": 1.0
+      },
+      "model": "model_v4_xgboost",
+      "requested_device": "cuda",
+      "training_seconds": 2.483208
+    }
+  ],
+  "class_counts": {
+    "agricultural": 520,
+    "industrial": 122,
+    "unknown": 27,
+    "vegetation": 108
+  },
+  "dataset_fingerprint": "df93ee42171dae91d5a6cb6faee03d89cc65fcb5f939052fff5d91ee30b8a26b",
+  "evaluation_language": "held-out weak-label agreement; not validation accuracy",
+  "feature_count": 41,
+  "feature_names": [
+    "log_detection_count",
+    "sensor_support",
+    "active_day_ratio",
+    "observation_window_ratio_90d",
+    "detections_per_active_day",
+    "day_detection_ratio",
+    "night_detection_ratio",
+    "log_mean_frp_mw",
+    "log_median_frp_mw",
+    "log_max_frp_mw",
+    "log_latest_frp_mw",
+    "log_frp_mad_mw",
+    "robust_anomaly_score",
+    "anomaly_score_available",
+    "anomaly_elevated",
+    "persistence_score",
+    "cluster_radius_over_epsilon",
+    "facility_present",
+    "facility_distance_log_ratio_25km",
+    "facility_refinery",
+    "facility_flare",
+    "facility_power_plant",
+    "facility_quarry",
+    "facility_steelmaking",
+    "land_cover_vegetation",
+    "land_cover_cropland",
+    "land_cover_built_up",
+    "land_cover_barren",
+    "land_cover_water",
+    "land_cover_snow_ice",
+    "land_cover_unclassified",
+    "brightness_i4_scaled",
+    "brightness_delta_scaled",
+    "brightness_i4_available",
+    "confidence_score",
+    "representative_day",
+    "representative_night",
+    "month_sin",
+    "month_cos",
+    "utc_hour_sin",
+    "utc_hour_cos"
+  ],
+  "feature_version": "cluster_tabular_features_v1",
+  "generated_at": "2026-09-03T11:43:29.251977+00:00",
+  "gpu_inventory": {
+    "available": true,
+    "devices": [
+      {
+        "driver_version": "595.79",
+        "memory_mib": 12288,
+        "name": "NVIDIA GeForce RTX 3060"
+      }
+    ]
+  },
+  "label_provenance": "weak_rules",
+  "library_versions": {
+    "numpy": "2.5.2",
+    "scikit_learn": "1.9.0",
+    "xgboost": "3.4.1"
+  },
+  "limitations": [
+    "Weak-label scores measure agreement with existing rules, not real-world classification accuracy.",
+    "The source archive covers eight UTC dates and cannot support seasonal generalization claims.",
+    "Two-degree spatial blocks prevent direct block overlap but do not prove cross-region generalization.",
+    "No trained candidate is loaded into operational inference automatically."
+  ],
+  "operational_model_unchanged": "rules_temporal_metric_v3",
+  "production_eligible": false,
+  "random_seed": 26162,
+  "report_version": "model_benchmark_v1",
+  "rules_baseline": {
+    "device": "cpu",
+    "evaluation_language": "held-out weak-label agreement; not validation accuracy",
+    "feature_importances": {},
+    "metrics": {
+      "balanced_accuracy": 0.789474,
+      "confusion_matrix": [
+        [
+          3,
+          2,
+          10,
+          4
+        ],
+        [
+          0,
+          30,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          152,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          6
+        ]
+      ],
+      "industrial_f1": 0.272727,
+      "industrial_precision": 1.0,
+      "industrial_recall": 0.157895,
+      "labels": [
+        "industrial",
+        "vegetation",
+        "agricultural",
+        "unknown"
+      ],
+      "macro_f1": 0.739656,
+      "macro_precision": 0.868943,
+      "macro_recall": 0.789474,
+      "per_class": {
+        "agricultural": {
+          "f1": 0.968153,
+          "precision": 0.938272,
+          "recall": 1.0,
+          "support": 152
+        },
+        "industrial": {
+          "f1": 0.272727,
+          "precision": 1.0,
+          "recall": 0.157895,
+          "support": 19
+        },
+        "unknown": {
+          "f1": 0.75,
+          "precision": 0.6,
+          "recall": 1.0,
+          "support": 6
+        },
+        "vegetation": {
+          "f1": 0.967742,
+          "precision": 0.9375,
+          "recall": 1.0,
+          "support": 30
+        }
+      },
+      "weighted_f1": 0.897939
+    },
+    "model": "model_v1_rules_baseline",
+    "training_seconds": 0.0
+  },
+  "sample_count": 777,
+  "selected_development_candidate": "model_v3_random_forest",
+  "spatial_group_count": 61,
+  "spatial_group_overlap": [],
+  "spatial_group_size_degrees": 2.0,
+  "status": "development_only",
+  "test_samples": 207,
+  "test_spatial_groups": 16,
+  "train_samples": 570,
+  "train_spatial_groups": 45
+}

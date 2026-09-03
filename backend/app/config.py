@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     clustering_epsilon_m: float = 750.0
     clustering_min_samples: int = 2
     cluster_review_file: Path = Path("data/cache/cluster_review_audit.json")
+    model_benchmark_report_file: Path = Path("data/samples/model_benchmark_report.json")
+    model_min_reviewed_samples: int = 60
+    model_min_samples_per_class: int = 10
+    model_min_spatial_groups_per_class: int = 3
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   CircleDot,
   Clock3,
+  Cpu,
   Database,
   Flame,
   Factory,
@@ -55,6 +56,8 @@ import type {
   HistoryReadiness,
   IndiaBoundary,
   IndustrialFacility,
+  ModelBenchmarkEnvelope,
+  ModelTrainingReadiness,
   PlaybackFrame,
   ReviewAlert,
   ThermalClusterSummary,
@@ -72,6 +75,7 @@ const NAV_ITEMS: { label: string; icon: LucideIcon }[] = [
   { label: "Sources", icon: Target },
   { label: "Analytics", icon: Activity },
   { label: "Validate", icon: CheckCircle2 },
+  { label: "Models", icon: Cpu },
 ];
 
 const FILTERS: { id: Filter; label: string }[] = [
@@ -872,6 +876,166 @@ function ValidationWorkspace({
   );
 }
 
+const modelDisplayName = (model: string) => ({
+  model_v1_rules_baseline: "Rules baseline",
+  model_v2_logistic: "Logistic regression",
+  model_v3_random_forest: "Random forest",
+  model_v4_xgboost: "XGBoost",
+})[model] ?? model.replaceAll("_", " ");
+
+function ModelsWorkspace({
+  readiness,
+  benchmark,
+}: {
+  readiness: ModelTrainingReadiness | null;
+  benchmark: ModelBenchmarkEnvelope | null;
+}) {
+  if (!readiness) {
+    return <section className="stage-workspace grid place-items-center text-sm text-slate-500">Model governance is unavailable in simulation mode.</section>;
+  }
+
+  const report = benchmark?.report ?? null;
+  const candidates = report
+    ? [report.rulesBaseline, ...report.candidateModels]
+    : [];
+  const selected = candidates.find(
+    (candidate) => candidate.model === report?.selectedDevelopmentCandidate,
+  ) ?? candidates[0];
+  const rankedFeatures = selected
+    ? Object.entries(selected.featureImportances).sort(([, left], [, right]) => right - left).slice(0, 8)
+    : [];
+  const maximumImportance = Math.max(...rankedFeatures.map(([, value]) => value), 1);
+  const reviewedProgress = Math.min(
+    100,
+    (readiness.eligibleReviewedSamples / readiness.requiredReviewedSamples) * 100,
+  );
+  const gateReady = readiness.status === "ready_for_reviewed_training";
+  const gpu = report?.gpuInventory.devices[0];
+
+  return (
+    <section className="stage-workspace models-stage">
+      <div className="stage-header">
+        <div><p className="eyebrow">Governed model lifecycle</p><h2>Training readiness and benchmark laboratory</h2></div>
+        <span className={`model-gate-badge ${gateReady ? "is-ready" : "is-blocked"}`}>
+          {gateReady ? "Reviewed training gate ready" : "Production gate blocked"}
+        </span>
+      </div>
+
+      <section className="model-boundary-banner">
+        <AlertTriangle size={16} />
+        <div>
+          <strong>{benchmark?.message ?? "No development benchmark has been run."}</strong>
+          <p>Perfect weak-label agreement only shows that a candidate reproduced existing rule outputs. It is not real-world accuracy and no trained model is serving classifications.</p>
+        </div>
+        <span>Operational: {readiness.currentOperationalModel}</span>
+      </section>
+
+      <div className="model-summary-grid">
+        <section className="model-readiness-card">
+          <div className="flex items-start justify-between gap-4">
+            <div><p className="eyebrow">Reviewed-label gate</p><strong>{readiness.eligibleReviewedSamples}/{readiness.requiredReviewedSamples}</strong></div>
+            <span>{reviewedProgress.toFixed(0)}%</span>
+          </div>
+          <i><b style={{ width: `${reviewedProgress}%` }} /></i>
+          <p>{readiness.recommendedNextAction}</p>
+          <small>{readiness.reviewedSpatialGroups} reviewed spatial groups · latest eligible label per cluster only</small>
+        </section>
+
+        <section className="model-runtime-card">
+          <div><Cpu size={17} /><span>{gpu ? "GPU benchmark completed" : "Compute inventory"}</span></div>
+          <strong>{gpu?.name ?? "No GPU recorded"}</strong>
+          <p>{gpu ? `${(gpu.memoryMib / 1024).toFixed(0)} GB VRAM · driver ${gpu.driverVersion}` : "Run the training command to capture hardware provenance."}</p>
+          <small>{report?.candidateModels.find((candidate) => candidate.model === "model_v4_xgboost")?.device ?? "Device unavailable"} · trained candidates remain offline artifacts</small>
+        </section>
+
+        <section className="model-data-card">
+          <p className="eyebrow">Benchmark evidence</p>
+          <strong>{report?.sampleCount.toLocaleString("en-IN") ?? "—"} clusters</strong>
+          <p>{report?.featureCount ?? readiness.featureCount} features · {report?.spatialGroupCount ?? readiness.weakLabelSpatialGroups} spatial blocks</p>
+          <small>{report ? `${report.trainSamples} train / ${report.testSamples} held out · ${report.spatialGroupOverlap.length} overlapping blocks` : "Benchmark report unavailable"}</small>
+        </section>
+      </div>
+
+      <section className="model-class-gates">
+        <div><p className="eyebrow">Balanced analyst coverage</p><span>{readiness.requiredSamplesPerClass} reviewed clusters and {readiness.requiredSpatialGroupsPerClass} spatial groups required per class</span></div>
+        {readiness.requiredClasses.map((category) => {
+          const count = readiness.reviewedLabelCounts[category] ?? 0;
+          const progress = Math.min(100, count / readiness.requiredSamplesPerClass * 100);
+          return (
+            <div key={category}>
+              <span style={{ color: CLASS_META[category].color }}>{CLASS_META[category].label}</span>
+              <strong>{count}/{readiness.requiredSamplesPerClass}</strong>
+              <i><b style={{ width: `${progress}%`, background: CLASS_META[category].color }} /></i>
+              <small>{readiness.weakLabelCounts[category]?.toLocaleString("en-IN") ?? 0} weak-label candidates</small>
+            </div>
+          );
+        })}
+      </section>
+
+      <section className="model-comparison-card">
+        <div className="model-section-heading">
+          <div><p className="eyebrow">Spatially separated evaluation</p><h3>Candidate comparison</h3></div>
+          <span>Weak-label agreement · not accuracy</span>
+        </div>
+        {candidates.length ? (
+          <div className="model-table-scroll">
+            <div className="model-table model-table-head"><span>Candidate</span><span>Device</span><span>Balanced agreement</span><span>Macro F1</span><span>Industrial precision</span><span>Industrial recall</span><span>Train time</span></div>
+            {candidates.map((candidate) => (
+              <div key={candidate.model} className={`model-table ${candidate.model === report?.selectedDevelopmentCandidate ? "is-selected" : ""}`}>
+                <span><strong>{modelDisplayName(candidate.model)}</strong><small>{candidate.model === report?.selectedDevelopmentCandidate ? "development candidate" : candidate.model === "model_v1_rules_baseline" ? "operational reference" : "offline artifact"}</small></span>
+                <span>{candidate.device}</span>
+                <span>{(candidate.metrics.balancedAccuracy * 100).toFixed(1)}%</span>
+                <span>{(candidate.metrics.macroF1 * 100).toFixed(1)}%</span>
+                <span>{(candidate.metrics.industrialPrecision * 100).toFixed(1)}%</span>
+                <span>{(candidate.metrics.industrialRecall * 100).toFixed(1)}%</span>
+                <span>{candidate.trainingSeconds.toFixed(2)}s</span>
+              </div>
+            ))}
+          </div>
+        ) : <p className="model-empty">No reproducible benchmark report is bundled yet.</p>}
+      </section>
+
+      {selected && (
+        <div className="model-diagnostics-grid">
+          <section className="model-confusion-card">
+            <div className="model-section-heading">
+              <div><p className="eyebrow">Held-out confusion matrix</p><h3>{modelDisplayName(selected.model)}</h3></div>
+              <span>Rows: weak label · columns: prediction</span>
+            </div>
+            <div className="confusion-grid" style={{ gridTemplateColumns: `104px repeat(${selected.metrics.labels.length}, minmax(48px, 1fr))` }}>
+              <span />
+              {selected.metrics.labels.map((label) => <b key={`head-${label}`}>{label.slice(0, 4)}</b>)}
+              {selected.metrics.confusionMatrix.flatMap((row, rowIndex) => [
+                <b key={`row-${selected.metrics.labels[rowIndex]}`}>{selected.metrics.labels[rowIndex]}</b>,
+                ...row.map((value, columnIndex) => (
+                  <span key={`${rowIndex}-${columnIndex}`} className={rowIndex === columnIndex ? "is-diagonal" : ""}>{value}</span>
+                )),
+              ])}
+            </div>
+          </section>
+
+          <section className="model-features-card">
+            <div className="model-section-heading">
+              <div><p className="eyebrow">Candidate behavior</p><h3>Top feature signals</h3></div>
+              <span>{readiness.currentFeatureVersion}</span>
+            </div>
+            <div className="feature-bars">
+              {rankedFeatures.map(([feature, value]) => (
+                <div key={feature}><span>{feature.replaceAll("_", " ")}</span><i><b style={{ width: `${value / maximumImportance * 100}%` }} /></i><strong>{value.toFixed(3)}</strong></div>
+              ))}
+            </div>
+          </section>
+        </div>
+      )}
+
+      <section className="model-policy-grid">
+        <div><ShieldCheck size={14} /><span><strong>Label policy</strong>{readiness.labelPolicy}</span></div>
+        <div><Grid3X3 size={14} /><span><strong>Split policy</strong>{readiness.splitPolicy}</span></div>
+      </section>
+    </section>
+  );
+}
+
 export function CommandCenter() {
   const [filter, setFilter] = useState<Filter>("all");
   const [selectedId, setSelectedId] = useState(DEMO_EVENTS[0].id);
@@ -984,6 +1148,7 @@ export function CommandCenter() {
     Sources: ["Provenance control", "Evidence source registry", "Readiness · attribution · known boundaries"],
     Analytics: ["Temporal analysis", "Persistence and anomaly workspace", "Observed recurrence · robust deviation · candidate ranking"],
     Validate: ["Human-in-the-loop review", "Cluster validation workspace", "Satellite context · metric diagnostics · append-only analyst labels"],
+    Models: ["Governed learning system", "Model readiness and benchmark laboratory", "GPU provenance · spatial holdout · deployment gate"],
   }[nav] ?? ["National operating picture", "Thermal intelligence command center", "Detection · context · persistence · classification · explanation"];
 
   const generateBrief = () => {
@@ -1184,6 +1349,12 @@ export function CommandCenter() {
             boundary={operationalDataset?.boundary ?? null}
             diagnostics={operationalDataset?.clusteringDiagnostics ?? null}
             onReview={handleClusterReview}
+          />
+        )}
+        {nav === "Models" && (
+          <ModelsWorkspace
+            readiness={operationalDataset?.modelReadiness ?? null}
+            benchmark={operationalDataset?.modelBenchmark ?? null}
           />
         )}
 

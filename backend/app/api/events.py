@@ -23,6 +23,8 @@ from app.schemas.events import (
     EventCollection,
     HistoricalReadiness,
     LandCoverRefreshResponse,
+    ModelBenchmarkEnvelope,
+    ModelTrainingReadiness,
     NormalizedThermalEvent,
     PersistenceResponse,
     PlaybackCollection,
@@ -69,6 +71,7 @@ from app.services.land_cover import (
 from app.services.land_cover import (
     TILE_TEMPLATE as LAND_COVER_TILE_TEMPLATE,
 )
+from app.services.model_pipeline import load_model_benchmark, model_training_readiness
 from app.services.osm import load_facilities, refresh_facilities
 from app.services.persistence import persist_current_snapshot
 from app.services.temporal import (
@@ -247,6 +250,24 @@ async def dashboard_analytics() -> AnalyticsDashboard:
 )
 async def spatial_clustering_diagnostics() -> ClusteringDiagnostics:
     return clustering_diagnostics(load_events())
+
+
+@router.get(
+    "/models/readiness",
+    response_model=ModelTrainingReadiness,
+    tags=["models"],
+)
+async def training_readiness() -> ModelTrainingReadiness:
+    return model_training_readiness(load_events())
+
+
+@router.get(
+    "/models/benchmark",
+    response_model=ModelBenchmarkEnvelope,
+    tags=["models"],
+)
+async def model_benchmark() -> ModelBenchmarkEnvelope:
+    return load_model_benchmark()
 
 
 @router.get("/playback", response_model=PlaybackCollection, tags=["analytics"])

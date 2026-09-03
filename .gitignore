@@ -25,6 +25,7 @@ backend/data/cache/
 backend/data/archive/
 ml/models/*.joblib
 ml/models/*.onnx
+ml/models/*.ubj
 
 # IDE / OS
 .scaffold-git-history/

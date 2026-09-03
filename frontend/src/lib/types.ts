@@ -72,6 +72,90 @@ export type HistoryReadiness = {
   caveats: string[];
 };
 
+export type ModelTrainingReadiness = {
+  status: "blocked_insufficient_reviewed_labels" | "ready_for_reviewed_training";
+  currentOperationalModel: string;
+  currentFeatureVersion: string;
+  reviewedRecords: number;
+  reviewedClusters: number;
+  eligibleReviewedSamples: number;
+  excludedOrUncertainReviews: number;
+  weakLabelSamples: number;
+  reviewedLabelCounts: Record<EventClass, number>;
+  weakLabelCounts: Record<EventClass, number>;
+  reviewedSpatialGroups: number;
+  weakLabelSpatialGroups: number;
+  requiredReviewedSamples: number;
+  requiredSamplesPerClass: number;
+  requiredSpatialGroupsPerClass: number;
+  requiredClasses: EventClass[];
+  featureCount: number;
+  featureNames: string[];
+  candidateModels: string[];
+  labelPolicy: string;
+  splitPolicy: string;
+  blockers: string[];
+  recommendedNextAction: string;
+};
+
+export type ModelBenchmarkMetrics = {
+  balancedAccuracy: number;
+  macroF1: number;
+  industrialPrecision: number;
+  industrialRecall: number;
+  industrialF1: number;
+  labels: EventClass[];
+  confusionMatrix: number[][];
+};
+
+export type ModelBenchmarkCandidate = {
+  model: string;
+  device: string;
+  requestedDevice?: string;
+  fallbackReason?: string | null;
+  trainingSeconds: number;
+  evaluationLanguage: string;
+  metrics: ModelBenchmarkMetrics;
+  featureImportances: Record<string, number>;
+};
+
+export type ModelBenchmarkReport = {
+  generatedAt: string;
+  labelProvenance: "weak_rules" | "analyst_reviewed";
+  evaluationLanguage: string;
+  sampleCount: number;
+  featureCount: number;
+  classCounts: Record<EventClass, number>;
+  spatialGroupCount: number;
+  trainSamples: number;
+  testSamples: number;
+  trainSpatialGroups: number;
+  testSpatialGroups: number;
+  spatialGroupOverlap: string[];
+  selectedDevelopmentCandidate: string;
+  productionEligible: boolean;
+  operationalModelUnchanged: string;
+  rulesBaseline: ModelBenchmarkCandidate;
+  candidateModels: ModelBenchmarkCandidate[];
+  gpuInventory: {
+    available: boolean;
+    devices: Array<{
+      name: string;
+      memoryMib: number;
+      driverVersion: string;
+    }>;
+  };
+  libraryVersions: Record<string, string>;
+  limitations: string[];
+};
+
+export type ModelBenchmarkEnvelope = {
+  available: boolean;
+  status: "not_run" | "development_only" | "reviewed_evaluation";
+  message: string;
+  report: ModelBenchmarkReport | null;
+};
+
 export type ThermalEvent = {
   id: string;
   shortId: string;
@@ -139,6 +223,8 @@ export type DashboardDataset = {
   historyReadiness: HistoryReadiness | null;
   clusteringDiagnostics: ClusteringDiagnostics | null;
   clusterReviews: ClusterReview[];
+  modelReadiness: ModelTrainingReadiness | null;
+  modelBenchmark: ModelBenchmarkEnvelope | null;
   boundary: IndiaBoundary | null;
 };
 

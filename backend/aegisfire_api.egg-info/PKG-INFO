@@ -15,3 +15,8 @@ Requires-Dist: uvicorn[standard]<1.0,>=0.34
 Provides-Extra: dev
 Requires-Dist: pytest<9.0,>=8.3; extra == "dev"
 Requires-Dist: ruff<1.0,>=0.9; extra == "dev"
+Provides-Extra: ml
+Requires-Dist: joblib<2.0,>=1.4; extra == "ml"
+Requires-Dist: numpy<3.0,>=2.0; extra == "ml"
+Requires-Dist: scikit-learn<2.0,>=1.6; extra == "ml"
+Requires-Dist: xgboost<4.0,>=3.0; extra == "ml"

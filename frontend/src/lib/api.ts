@@ -9,6 +9,11 @@ import type {
   HistoryReadiness,
   IndiaBoundary,
   IndustrialFacility,
+  ModelBenchmarkCandidate,
+  ModelBenchmarkEnvelope,
+  ModelBenchmarkMetrics,
+  ModelBenchmarkReport,
+  ModelTrainingReadiness,
   PlaybackFrame,
   ReviewAlert,
   ThermalEvent,
@@ -315,6 +320,90 @@ type ApiClusterReview = {
 };
 
 type ApiClusterReviewCollection = { reviews: ApiClusterReview[] };
+
+type ApiModelTrainingReadiness = {
+  status: ModelTrainingReadiness["status"];
+  current_operational_model: string;
+  current_feature_version: string;
+  reviewed_records: number;
+  reviewed_clusters: number;
+  eligible_reviewed_samples: number;
+  excluded_or_uncertain_reviews: number;
+  weak_label_samples: number;
+  reviewed_label_counts: Record<EventClass, number>;
+  weak_label_counts: Record<EventClass, number>;
+  reviewed_spatial_groups: number;
+  weak_label_spatial_groups: number;
+  required_reviewed_samples: number;
+  required_samples_per_class: number;
+  required_spatial_groups_per_class: number;
+  required_classes: EventClass[];
+  feature_count: number;
+  feature_names: string[];
+  candidate_models: string[];
+  label_policy: string;
+  split_policy: string;
+  blockers: string[];
+  recommended_next_action: string;
+};
+
+type ApiModelBenchmarkMetrics = {
+  balanced_accuracy: number;
+  macro_f1: number;
+  industrial_precision: number;
+  industrial_recall: number;
+  industrial_f1: number;
+  labels: EventClass[];
+  confusion_matrix: number[][];
+};
+
+type ApiModelBenchmarkCandidate = {
+  model: string;
+  device: string;
+  requested_device?: string;
+  fallback_reason?: string | null;
+  training_seconds: number;
+  evaluation_language: string;
+  metrics: ApiModelBenchmarkMetrics;
+  feature_importances: Record<string, number>;
+};
+
+type ApiModelBenchmarkReport = {
+  generated_at: string;
+  label_provenance: "weak_rules" | "analyst_reviewed";
+  evaluation_language: string;
+  sample_count: number;
+  feature_count: number;
+  class_counts: Record<EventClass, number>;
+  spatial_group_count: number;
+  train_samples: number;
+  test_samples: number;
+  train_spatial_groups: number;
+  test_spatial_groups: number;
+  spatial_group_overlap: string[];
+  selected_development_candidate: string;
+  production_eligible: boolean;
+  operational_model_unchanged: string;
+  rules_baseline: ApiModelBenchmarkCandidate;
+  candidate_models: ApiModelBenchmarkCandidate[];
+  gpu_inventory: {
+    available: boolean;
+    devices: Array<{
+      name: string;
+      memory_mib: number;
+      driver_version: string;
+    }>;
+  };
+  library_versions: Record<string, string>;
+  limitations: string[];
+};
+
+type ApiModelBenchmarkEnvelope = {
+  available: boolean;
+  status: ModelBenchmarkEnvelope["status"];
+  message: string;
+  report: ApiModelBenchmarkReport | null;
+};
 
 const confidenceLabel = (value: ApiEvidenceEvent["confidence"]) =>
   value === "unknown" ? "Unspecified" : value[0].toUpperCase() + value.slice(1);
@@ -660,6 +749,89 @@ const adaptClusterReview = (review: ApiClusterReview): ClusterReview => ({
   incidentConfirmation: review.incident_confirmation,
 });
 
+const adaptModelReadiness = (
+  body: ApiModelTrainingReadiness,
+): ModelTrainingReadiness => ({
+  status: body.status,
+  currentOperationalModel: body.current_operational_model,
+  currentFeatureVersion: body.current_feature_version,
+  reviewedRecords: body.reviewed_records,
+  reviewedClusters: body.reviewed_clusters,
+  eligibleReviewedSamples: body.eligible_reviewed_samples,
+  excludedOrUncertainReviews: body.excluded_or_uncertain_reviews,
+  weakLabelSamples: body.weak_label_samples,
+  reviewedLabelCounts: body.reviewed_label_counts,
+  weakLabelCounts: body.weak_label_counts,
+  reviewedSpatialGroups: body.reviewed_spatial_groups,
+  weakLabelSpatialGroups: body.weak_label_spatial_groups,
+  requiredReviewedSamples: body.required_reviewed_samples,
+  requiredSamplesPerClass: body.required_samples_per_class,
+  requiredSpatialGroupsPerClass: body.required_spatial_groups_per_class,
+  requiredClasses: body.required_classes,
+  featureCount: body.feature_count,
+  featureNames: body.feature_names,
+  candidateModels: body.candidate_models,
+  labelPolicy: body.label_policy,
+  splitPolicy: body.split_policy,
+  blockers: body.blockers,
+  recommendedNextAction: body.recommended_next_action,
+});
+
+const adaptModelMetrics = (
+  metrics: ApiModelBenchmarkMetrics,
+): ModelBenchmarkMetrics => ({
+  balancedAccuracy: metrics.balanced_accuracy,
+  macroF1: metrics.macro_f1,
+  industrialPrecision: metrics.industrial_precision,
+  industrialRecall: metrics.industrial_recall,
+  industrialF1: metrics.industrial_f1,
+  labels: metrics.labels,
+  confusionMatrix: metrics.confusion_matrix,
+});
+
+const adaptModelCandidate = (
+  candidate: ApiModelBenchmarkCandidate,
+): ModelBenchmarkCandidate => ({
+  model: candidate.model,
+  device: candidate.device,
+  requestedDevice: candidate.requested_device,
+  fallbackReason: candidate.fallback_reason,
+  trainingSeconds: candidate.training_seconds,
+  evaluationLanguage: candidate.evaluation_language,
+  metrics: adaptModelMetrics(candidate.metrics),
+  featureImportances: candidate.feature_importances,
+});
+
+const adaptModelReport = (report: ApiModelBenchmarkReport): ModelBenchmarkReport => ({
+  generatedAt: report.generated_at,
+  labelProvenance: report.label_provenance,
+  evaluationLanguage: report.evaluation_language,
+  sampleCount: report.sample_count,
+  featureCount: report.feature_count,
+  classCounts: report.class_counts,
+  spatialGroupCount: report.spatial_group_count,
+  trainSamples: report.train_samples,
+  testSamples: report.test_samples,
+  trainSpatialGroups: report.train_spatial_groups,
+  testSpatialGroups: report.test_spatial_groups,
+  spatialGroupOverlap: report.spatial_group_overlap,
+  selectedDevelopmentCandidate: report.selected_development_candidate,
+  productionEligible: report.production_eligible,
+  operationalModelUnchanged: report.operational_model_unchanged,
+  rulesBaseline: adaptModelCandidate(report.rules_baseline),
+  candidateModels: report.candidate_models.map(adaptModelCandidate),
+  gpuInventory: {
+    available: report.gpu_inventory.available,
+    devices: report.gpu_inventory.devices.map((device) => ({
+      name: device.name,
+      memoryMib: device.memory_mib,
+      driverVersion: device.driver_version,
+    })),
+  },
+  libraryVersions: report.library_versions,
+  limitations: report.limitations,
+});
+
 export async function fetchOperationalEvents(signal?: AbortSignal): Promise<DashboardDataset> {
   const [
     eventResponse,
@@ -674,6 +846,8 @@ export async function fetchOperationalEvents(signal?: AbortSignal): Promise<Dash
     geographyResponse,
     diagnosticsResponse,
     reviewsResponse,
+    modelReadinessResponse,
+    modelBenchmarkResponse,
   ] = await Promise.all([
     fetch(`${API_BASE_URL}/events?min_frp=1&window_hours=24&limit=2000`, {
       signal,
@@ -699,6 +873,8 @@ export async function fetchOperationalEvents(signal?: AbortSignal): Promise<Dash
     fetch(`${API_BASE_URL}/geography/india`, { signal, cache: "no-store" }),
     fetch(`${API_BASE_URL}/clustering/diagnostics`, { signal, cache: "no-store" }),
     fetch(`${API_BASE_URL}/validation/reviews`, { signal, cache: "no-store" }),
+    fetch(`${API_BASE_URL}/models/readiness`, { signal, cache: "no-store" }),
+    fetch(`${API_BASE_URL}/models/benchmark`, { signal, cache: "no-store" }),
   ]);
   if (!eventResponse.ok) {
     throw new Error(`AegisFire API returned ${eventResponse.status}`);
@@ -737,6 +913,12 @@ export async function fetchOperationalEvents(signal?: AbortSignal): Promise<Dash
   const reviewsBody: ApiClusterReviewCollection = reviewsResponse.ok
     ? ((await reviewsResponse.json()) as ApiClusterReviewCollection)
     : { reviews: [] };
+  const modelReadinessBody = modelReadinessResponse.ok
+    ? ((await modelReadinessResponse.json()) as ApiModelTrainingReadiness)
+    : null;
+  const modelBenchmarkBody = modelBenchmarkResponse.ok
+    ? ((await modelBenchmarkResponse.json()) as ApiModelBenchmarkEnvelope)
+    : null;
   const facilities: IndustrialFacility[] = facilityBody.facilities.map((facility) => ({
     id: facility.osm_id,
     name: facility.name,
@@ -779,6 +961,19 @@ export async function fetchOperationalEvents(signal?: AbortSignal): Promise<Dash
       ? adaptClusteringDiagnostics(diagnosticsBody)
       : null,
     clusterReviews: reviewsBody.reviews.map(adaptClusterReview),
+    modelReadiness: modelReadinessBody
+      ? adaptModelReadiness(modelReadinessBody)
+      : null,
+    modelBenchmark: modelBenchmarkBody
+      ? {
+          available: modelBenchmarkBody.available,
+          status: modelBenchmarkBody.status,
+          message: modelBenchmarkBody.message,
+          report: modelBenchmarkBody.report
+            ? adaptModelReport(modelBenchmarkBody.report)
+            : null,
+        }
+      : null,
     boundary: geographyBody
       ? { type: geographyBody.type, features: geographyBody.features }
       : null,

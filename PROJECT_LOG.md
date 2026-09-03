@@ -509,3 +509,48 @@ Replace the rounded-degree analytical grouping with deterministic metric cluster
 - Membership-derived IDs can change as history accumulates. Production review persistence needs cluster-lineage reconciliation, authenticated users, optimistic concurrency, and PostGIS audit tables.
 - Review labels are local context assessments, not ground truth. The next evaluation stage is a spatially separated reviewed subset, label-agreement checks, parameter sensitivity analysis, and only then a rules baseline/confusion matrix.
 - The archive still has eight observed dates, so 30/90-day and seasonal modeling remain blocked by evidence coverage rather than implementation.
+
+## 2026-09-03 — Governed model-readiness and GPU benchmark stage
+
+### Objective
+
+Advance the classification roadmap without inventing accuracy: create a reproducible tabular training/evaluation pipeline, use the available local GPU for the suitable candidate, enforce spatially separated evaluation and analyst-label gates, and make the full model state inspectable in the web command center.
+
+### Files or areas touched
+
+- backend model settings, schemas, API routes, feature extraction/readiness service, and tests;
+- `ml/train_tabular.py`, ML unit tests, ignored artifact policy, and model-artifact documentation;
+- deterministic `backend/data/samples/model_benchmark_report.json` plus sample-data provenance notes;
+- frontend domain types, API adapters, Models navigation/workspace, and responsive command-center styling;
+- optional ML dependency group, environment template, README, research/reference glossary, and this living log.
+
+### Decisions and important implementation details
+
+- Built `cluster_tabular_features_v1`, a deterministic 41-feature contract spanning thermal intensity, robust anomaly state, recurrence, sensor support, DBSCAN geometry, mapped-facility proximity/type, MODIS land-cover context, confidence, day/night state, and cyclic calendar features. Raw latitude and longitude are excluded from the model inputs.
+- Added a production-readiness gate that accepts only the latest eligible analyst context label for each cluster. The current configurable minimum is 60 reviewed clusters, 10 per class, and three spatial blocks per class; uncertain and data-quality-exclusion reviews stay auditable but cannot train a target.
+- Implemented reproducible model comparison for the current rules reference, standardized logistic regression, class-balanced random forest, and XGBoost. Complete two-degree spatial groups are held out with seed 26162, and the report asserts a zero-size train/test group intersection.
+- Detected the system NVIDIA GeForce RTX 3060 and trained XGBoost using the documented histogram/CUDA interface. The report records `cuda:0`, 12,288 MiB, driver 595.79, library versions, training times, data fingerprint, feature names, confusion matrices, and SHA-256 artifact hashes.
+- Kept trained binaries in ignored `ml/models/`. The bundled JSON report is the inspectable and testable product artifact; no estimator is automatically loaded into the API.
+- Kept the production gate closed because there are zero eligible analyst labels and only eight observed UTC dates. The existing `rules_temporal_metric_v3` classifier remains operational.
+- Labeled every development score as held-out weak-label agreement. Random forest and XGBoost each reproduced the weak rules at 100% balanced agreement and macro F1; that circular result is prominently disclosed as not real-world accuracy. Logistic regression reached 94.7% balanced agreement and 94.6% macro F1, while the intentionally simpler rules reference reached 78.9% and 74.0%, respectively.
+- Added `/models/readiness` and `/models/benchmark`, then built a Palantir-inspired Models workspace showing the blocked gate, per-class review progress, GPU provenance, split sizes, candidate table, selected-candidate confusion matrix, feature signals, and label/split policies.
+
+### Verification performed and result
+
+- Explicit CUDA benchmark completed without CPU fallback: 777 clusters, 41 features, 61 spatial groups, 570 training samples in 45 groups, 207 held-out samples in 16 groups, and zero overlapping groups. XGBoost resolved to `cuda:0` and trained in 2.48 seconds on this run.
+- `.venv\Scripts\python.exe -m ruff check app tests alembic ..\ml` — passed.
+- `.venv\Scripts\python.exe -m pytest -q` — 31 backend tests passed; one upstream Starlette/httpx deprecation warning remains.
+- `backend\.venv\Scripts\python.exe -m pytest ml\tests -q` from the repository root — two ML split/metric tests passed.
+- `npm run lint` — passed.
+- `npm run build` — passed with strict TypeScript, Next.js compilation, and static page generation.
+- `docker compose config --quiet` — passed.
+- Running API smoke check — readiness returned `blocked_insufficient_reviewed_labels` with `0/60`; benchmark returned `development_only`, 777 samples, XGBoost on `cuda:0`, and `production_eligible=false`.
+- Live browser QA — the Models workspace loaded from the operational API and rendered the `0/60` blocked gate, all four `0/10` class gates, RTX 3060 / `cuda:0` provenance, 777-cluster split telemetry, four-candidate comparison, 4×4 confusion matrix, top feature signals, and explicit non-accuracy/deployment warnings.
+
+### Known limitations or next concrete task
+
+- There are no eligible analyst labels. The 100% random-forest/XGBoost figures are weak-rule reproduction and must not be used in product, scientific, or safety claims.
+- The retained evidence spans only eight UTC dates. Longer 30/90-day archival coverage, seasonal representation, targeted known-facility samples, and independent expert review are still required.
+- Two-degree grouped holdout blocks reduce direct spatial leakage but need sensitivity testing against finer/coarser groups, leave-region-out validation, temporal holdout, and facility-lineage grouping.
+- Class support is imbalanced (520 agricultural weak labels versus 27 unknown). Future reviewed sampling should be stratified by class, spatial block, sensor, season, persistence regime, and facility type.
+- Before any production model stage, add reviewer agreement/quality controls, calibration assessment, probability reliability plots, parameter sweeps, explicit acceptance thresholds, signed model registry metadata, rollback support, and monitored shadow inference.

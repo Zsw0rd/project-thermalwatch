@@ -50,6 +50,8 @@ docker compose up --build
 - `GET /api/v1/clustering/diagnostics` — DBSCAN density, noise, radius, and legacy-grid comparison;
 - `GET /api/v1/validation/reviews` — append-only local analyst-label audit records;
 - `POST /api/v1/clusters/{cluster_id}/reviews` — snapshot evidence and append an analyst context label;
+- `GET /api/v1/models/readiness` — reviewed-label counts, class/spatial coverage, and explicit deployment blockers;
+- `GET /api/v1/models/benchmark` — reproducible development benchmark metadata and metrics, never automatic deployment;
 - `GET /api/v1/playback` — cumulative daily observation frames;
 - `GET /api/v1/history/readiness` — honest 30/90-day archive coverage telemetry;
 - `GET /api/v1/geography/india` — attributed map-ready India ADM0 boundary;
@@ -75,6 +77,7 @@ docker compose up --build
 - category and text filtering;
 - navigable overview, alert triage, evidence-source, and temporal-analytics workspaces;
 - analyst validation workspace with satellite/grid context, a structured review packet, and append-only context labels that never confirm an incident;
+- governed Models workspace with reviewed-label gates, spatial-holdout diagnostics, confusion matrix, feature signals, and captured GPU provenance;
 - facility-monitor workspace with site selection, observed FRP history, evidence, and status;
 - historical map playback with daily frames, newly observed cells, and cumulative recurrence;
 - persisted local alert lifecycle for acknowledgement, investigation, closure, and reopening;
@@ -84,6 +87,19 @@ docker compose up --build
 - visible source attribution and safety labeling;
 - responsive intelligence drawer on smaller screens;
 - Alembic/PostGIS schema and batched snapshot persistence.
+
+## Reproducible model benchmark
+
+Model training is an optional development stage. Install the pinned ML extras and run from `backend` so the API settings and deterministic evidence snapshot resolve consistently:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e ".[dev,ml]"
+.\.venv\Scripts\python.exe ..\ml\train_tabular.py --label-source weak --device auto
+```
+
+`--device auto` uses an available NVIDIA GPU for XGBoost and otherwise records a CPU fallback. `--device cuda` requires CUDA training to succeed. The script compares the current rules reference with logistic regression, random forest, and XGBoost, holds out complete two-degree spatial blocks, writes the inspectable report to `backend/data/samples/model_benchmark_report.json`, and keeps binary artifacts under ignored `ml/models/`.
+
+The bundled report uses rule-derived weak labels because no eligible analyst reviews exist yet. Its metrics are **held-out weak-label agreement, not validation accuracy**. A 100% result can mean that a model learned to reproduce the existing rules. The operational classifier therefore remains `rules_temporal_metric_v3`; reviewed-model training is blocked until at least 60 eligible clusters, 10 per class, and coverage across three spatial blocks per class are collected. Once that gate is satisfied, run the same command with `--label-source reviewed` and review the resulting report before any separate deployment decision.
 
 The checked-in source snapshots and India boundary make the full judging flow deterministic. Set `FIRMS_MAP_KEY` only for authenticated Area API refreshes; never commit it. Runtime archive files remain ignored by Git and can be mounted at `backend/data/archive`.
 
