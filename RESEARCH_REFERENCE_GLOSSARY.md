@@ -20,6 +20,7 @@ This file is the durable research notebook for the project. Verified facts, engi
 - [NASA FIRMS](https://firms.modaps.eosdis.nasa.gov/) — operational fire and thermal-anomaly information.
 - [NASA FIRMS Academy](https://firms.modaps.eosdis.nasa.gov/academy) — learning material for interpretation, APIs, and visualization.
 - [NASA FIRMS API](https://firms.modaps.eosdis.nasa.gov/api/) — live data access and MAP_KEY guidance.
+- [NASA FIRMS Area API use](https://firms.modaps.eosdis.nasa.gov/content/academy/data_api/firms_api_use.html) — official request format, historical-date parameter, and data-availability workflow.
 - [VIIRS fire and thermal anomaly description](https://firms.modaps.eosdis.nasa.gov/content/descriptions/FIRMS_VIIRS_Firehotspots.html) — meaning and limitations of the VIIRS hotspot product.
 - [FIRMS Area API](https://firms.modaps.eosdis.nasa.gov/api/area/) — verified API contract: a free MAP_KEY is required, the request uses a bounding box, and the supported day range is 1–5 days.
 - [NOAA-20 South Asia 24-hour CSV](https://firms.modaps.eosdis.nasa.gov/data/active_fire/noaa-20-viirs-c2/csv/J1_VIIRS_C2_South_Asia_24h.csv) — checked-in operational snapshot source.
@@ -42,6 +43,11 @@ This file is the durable research notebook for the project. Verified facts, engi
 - [Overpass API](https://wiki.openstreetmap.org/wiki/Overpass_API) — querying OSM objects by geometry and tags.
 - [Public Overpass API instances](https://wiki.openstreetmap.org/wiki/Overpass_API#Public_Overpass_API_instances) — verified endpoints used by the bounded refresh client with failover.
 - [OpenStreetMap copyright and licence](https://www.openstreetmap.org/copyright) — OSM data attribution and Open Database License terms retained beside the snapshot and map context.
+
+### Administrative geography
+
+- [geoBoundaries India ADM0 metadata](https://www.geoboundaries.org/api/current/gbOpen/IND/ADM0/) — verified metadata for the open India country-level boundary: boundary ID `IND-ADM0-67634026`, represented year 2014, and CC0 1.0 license.
+- [Pinned geoBoundaries India ADM0 GeoJSON](https://github.com/wmgeolab/geoBoundaries/raw/9469f09/releaseData/gbOpen/IND/ADM0/geoBoundaries-IND-ADM0.geojson) — exact full-resolution MultiPolygon retained for deterministic offline containment and map rendering.
 
 ## 2026-09-01 verified source research and observed snapshot
 
@@ -77,6 +83,15 @@ This file is the durable research notebook for the project. Verified facts, engi
 - **Engineering assumption:** IGBP classes 1–11 are grouped as vegetation context, 12 and 14 as cropland, 13 as built-up, 15 as snow/ice, 16 as barren, and 0/17 as water. These groupings support candidate routing and must not be interpreted as physical source confirmation.
 - **Engineering assumption:** land cover is applied only after conservative mapped-facility and high-recurrence rules. This precedence protects stronger evidence from being overwritten by an annual surface class.
 - The MCD12Q1 product record cautions that training-sample changes affect post-2021 continuity. The 2024 categorical layer should therefore be treated as current context rather than a directly comparable long-run trend without additional validation. [MCD12Q1.061 product record](https://data.nasa.gov/dataset/modis-terraaqua-land-cover-type-yearly-l3-global-500m-sin-grid-v061-fac3a)
+
+## 2026-09-03 archival and administrative-boundary research
+
+- The FIRMS Area API path accepts an optional historical date after `DAY_RANGE`; `DAY_RANGE` is limited to 1–5, and a dated request covers the supplied date through date plus range minus one. AegisFire therefore accumulates immutable refresh snapshots rather than pretending one request supplies a 30/90-day history. [NASA FIRMS Area API](https://firms.modaps.eosdis.nasa.gov/api/area/), [official FIRMS API tutorial](https://firms.modaps.eosdis.nasa.gov/content/academy/data_api/firms_api_use.html)
+- **Engineering decision:** each successful raw CSV download is copied byte-for-byte to a UTC-date/content-hash path. Stable event fingerprints deduplicate overlapping rolling snapshots during normalization. This preserves source rows while avoiding double counting.
+- **Engineering decision:** readiness is the number of distinct UTC acquisition dates present after deduplication, not the inclusive span alone. Thirty- and ninety-day progress are coverage indicators; neither establishes a trained or seasonally representative baseline.
+- The pinned geoBoundaries feature is a one-feature `MultiPolygon` for India, with source metadata reporting represented year 2014 and CC0 1.0 licensing. It is used as an application containment boundary, not as a territorial claim. [geoBoundaries metadata](https://www.geoboundaries.org/api/current/gbOpen/IND/ADM0/)
+- A deterministic ray-casting point-in-polygon test, including polygon holes and boundary segments, now clips both FIRMS points and OSM representative points after the broader source retrieval. Known checks retain New Delhi, Bengaluru, and Port Blair while excluding Lahore, Dhaka, and Colombo.
+- After India ADM0 containment, the retained source window contains 1,566 unique FIRMS detections in 922 approximate cells and 14,543 supported OSM representative points. These are reproducible properties of the pinned 2026-09-02 snapshots and boundary, not stable national totals or completeness measures.
 
 ### Web and geospatial platform
 
@@ -118,6 +133,18 @@ The time at which a satellite sensor captured an observation. FIRMS dates and ti
 ### Bounding box (BBOX)
 
 A rectangular geographic query area usually represented by west, south, east, and north coordinates.
+
+### Administrative containment
+
+A point-in-polygon test that retains a record only when its coordinate lies inside a selected administrative boundary. AegisFire uses it after broad rectangular retrieval; it does not resolve political disputes or validate the source coordinate.
+
+### Baseline readiness
+
+Coverage telemetry showing how much distinct-date evidence has accumulated toward a proposed baseline window. It is not a claim that a statistical baseline has been trained, validated, or made seasonally representative.
+
+### Content-addressed archive
+
+An immutable storage layout whose path includes a digest of file contents. Identical refresh files resolve to the same snapshot path, while changed source bytes create a separate retained version.
 
 ### Candidate industrial-context anomaly
 
@@ -162,6 +189,10 @@ An estimate, commonly expressed in megawatts, of the rate of radiative energy em
 ### Geospatial enrichment
 
 Adding contextual attributes to an observation through spatial relationships, such as whether it lies inside an industrial polygon or how far it is from a refinery.
+
+### Point-in-polygon
+
+A spatial test that determines whether a coordinate falls inside a polygon's exterior ring and outside any holes. It is used here for national-scope filtering, independent of the map's visual zoom or screen-space clustering.
 
 ### Ground truth
 

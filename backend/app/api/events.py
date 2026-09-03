@@ -13,9 +13,11 @@ from app.schemas.events import (
     AlertReviewUpdate,
     AnalyticsDashboard,
     AnalyticsSummary,
+    ArchiveResponse,
     ConfidenceLabel,
     EventCategory,
     EventCollection,
+    HistoricalReadiness,
     LandCoverRefreshResponse,
     NormalizedThermalEvent,
     PersistenceResponse,
@@ -31,14 +33,21 @@ from app.schemas.facilities import (
     FacilityRefreshResponse,
 )
 from app.services.alert_workflow import apply_alert_review_states, update_alert_review
+from app.services.boundary import (
+    BOUNDARY_API_URL,
+    administrative_area_context,
+    load_india_boundary,
+)
 from app.services.facility_monitor import build_facility_monitors, facility_monitor_collection
 from app.services.firms import (
     alert_previews,
     analytics_summary,
+    current_source_files,
     invalidate_event_cache,
     load_events,
     refresh_source_files,
 )
+from app.services.history_archive import archive_source_files, history_readiness
 from app.services.land_cover import (
     LAYER_ID,
     OBSERVATION_DATE,
@@ -126,7 +135,6 @@ async def list_events(
     offset: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=5000)] = 500,
 ) -> EventCollection:
-    settings = get_settings()
     all_events = _filtered_events(
         confidence=confidence,
         min_frp=min_frp,
@@ -140,18 +148,17 @@ async def list_events(
         (event.source_attribution.retrieved_at for event in all_events),
         default=datetime.now(UTC),
     )
-    west, south, east, north = settings.india_bbox
     return EventCollection(
         mode="operational",
         generated_at=datetime.now(UTC),
         source_updated_at=source_updated_at,
-        geographic_scope=f"Configured India bounding box ({west},{south},{east},{north})",
+        geographic_scope="India ADM0 containment using the pinned geoBoundaries gbOpen polygon",
         scope_limitations=[
-            "Bounding-box filtering is not a precise India administrative-boundary join.",
+            "The India administrative boundary represents 2014 and is not a territorial claim.",
             "FIRMS reports thermal anomalies, not confirmed fires or industrial incidents.",
-            "OSM proximity, MODIS IGBP land cover, and seven-day recurrence are applied.",
+            "OSM proximity, MODIS IGBP land cover, administrative containment, and temporal recurrence are applied.",
             "The annual 2024 land-cover class is contextual evidence, not a contemporaneous observation or confirmation of the thermal source.",
-            "Seven-day baselines rank candidates but are not learned long-term facility baselines.",
+            "Coverage readiness is explicit; short archives rank candidates but are not learned long-term facility baselines.",
         ],
         total=len(all_events),
         returned=len(selected),
@@ -193,9 +200,7 @@ async def events_geojson(
                     "land_cover_class": (
                         event.land_cover.class_label if event.land_cover else None
                     ),
-                    "land_cover_group": (
-                        event.land_cover.group if event.land_cover else None
-                    ),
+                    "land_cover_group": (event.land_cover.group if event.land_cover else None),
                 },
             }
             for event in events
@@ -206,6 +211,15 @@ async def events_geojson(
 @router.get("/analytics/summary", response_model=AnalyticsSummary, tags=["analytics"])
 async def summary() -> AnalyticsSummary:
     return analytics_summary(load_events())
+
+
+@router.get(
+    "/history/readiness",
+    response_model=HistoricalReadiness,
+    tags=["analytics"],
+)
+async def historical_readiness() -> HistoricalReadiness:
+    return history_readiness(load_events())
 
 
 @router.get(
@@ -245,11 +259,7 @@ async def clusters(
 )
 async def get_cluster(cluster_id: str) -> ThermalClusterSummary:
     cluster = next(
-        (
-            item
-            for item in build_cluster_summaries(load_events())
-            if item.cluster_id == cluster_id
-        ),
+        (item for item in build_cluster_summaries(load_events()) if item.cluster_id == cluster_id),
         None,
     )
     if cluster is None:
@@ -277,9 +287,7 @@ async def event_history(event_id: str) -> ThermalClusterSummary:
 @router.get("/alerts", response_model=AlertCollection, tags=["alerts"])
 async def alerts() -> AlertCollection:
     collection = alert_previews(load_events())
-    return collection.model_copy(
-        update={"alerts": apply_alert_review_states(collection.alerts)}
-    )
+    return collection.model_copy(update={"alerts": apply_alert_review_states(collection.alerts)})
 
 
 @router.patch(
@@ -298,12 +306,20 @@ def update_alert(alert_id: str, update: AlertReviewUpdate) -> AlertPreview:
 @router.get("/sources", tags=["system"])
 async def sources() -> dict[str, object]:
     settings = get_settings()
+    readiness = history_readiness(load_events(), settings)
     return {
         "provider": "NASA FIRMS",
         "active_sources": sorted({event.source for event in load_events()}),
         "authenticated_area_api_configured": bool(settings.firms_map_key),
         "fallback": "Official public South Asia seven-day VIIRS CSV feeds",
         "attribution_required": True,
+        "archive": {
+            "snapshot_files": readiness.archive_snapshot_files,
+            "observed_calendar_days": readiness.observed_calendar_days,
+            "status": readiness.status,
+            "methodology": readiness.methodology,
+        },
+        "geography": administrative_area_context().model_dump(),
         "land_cover": {
             "provider": "NASA EOSDIS GIBS",
             "product": "MCD12Q1.061 MODIS IGBP annual land cover",
@@ -313,6 +329,22 @@ async def sources() -> dict[str, object]:
             "source_url": LAND_COVER_SOURCE_URL,
             "classification_use": "contextual likelihood feature only",
         },
+    }
+
+
+@router.get("/geography/india", tags=["system"])
+async def india_geography() -> dict[str, Any]:
+    boundary = load_india_boundary()
+    if boundary is None:
+        raise HTTPException(status_code=503, detail="Pinned India ADM0 boundary is unavailable")
+    return {
+        **boundary.feature_collection,
+        "attribution": administrative_area_context().model_dump(),
+        "metadata_url": BOUNDARY_API_URL,
+        "limitations": [
+            "The boundary represents 2014 and is used only for deterministic data containment.",
+            "Boundary geometry is not a territorial claim or a substitute for authoritative survey data.",
+        ],
     }
 
 
@@ -436,6 +468,28 @@ async def refresh_firms() -> RefreshResponse:
             status_code=502,
             detail=f"NASA FIRMS refresh failed: {type(exc).__name__}",
         ) from exc
+
+
+@router.post(
+    "/ingestion/firms/archive-current",
+    response_model=ArchiveResponse,
+    tags=["ingestion"],
+)
+async def archive_current_firms() -> ArchiveResponse:
+    settings = get_settings()
+    archived_at = datetime.now(UTC)
+    archived_files = await run_in_threadpool(
+        archive_source_files,
+        current_source_files(settings),
+        settings,
+        archived_at,
+    )
+    invalidate_event_cache()
+    return ArchiveResponse(
+        archived_at=archived_at,
+        archived_files=archived_files,
+        history=history_readiness(load_events(settings), settings),
+    )
 
 
 @router.post(

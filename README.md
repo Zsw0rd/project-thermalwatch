@@ -2,7 +2,7 @@
 
 AegisFire is an explainable geospatial intelligence platform for distinguishing industrial thermal anomalies, persistent industrial heat, vegetation fires, agricultural burning, and uncertain sources.
 
-The current implementation is a web-first command center backed by an attributed NASA FIRMS snapshot, OpenStreetMap industrial context, and NASA MODIS IGBP annual land cover. It automatically falls back to an explicitly labeled deterministic simulation when the API is unavailable.
+The current implementation is a web-first command center backed by attributed NASA FIRMS snapshots, OpenStreetMap industrial context, NASA MODIS IGBP annual land cover, and a pinned geoBoundaries India ADM0 polygon. It automatically falls back to an explicitly labeled deterministic simulation when the API is unavailable.
 
 ## Quick start — API and web
 
@@ -48,8 +48,11 @@ docker compose up --build
 - `GET /api/v1/analytics/summary` — snapshot statistics;
 - `GET /api/v1/analytics/dashboard` — temporal activity and persistence analytics;
 - `GET /api/v1/playback` — cumulative daily observation frames;
+- `GET /api/v1/history/readiness` — honest 30/90-day archive coverage telemetry;
+- `GET /api/v1/geography/india` — attributed map-ready India ADM0 boundary;
 - `GET /api/v1/land-cover/source` — MODIS IGBP source metadata and limitations;
 - `POST /api/v1/ingestion/firms/refresh`, `/osm/refresh`, and `/land-cover/refresh` — refresh local caches;
+- `POST /api/v1/ingestion/firms/archive-current` — archive the current raw FIRMS files without a network request;
 - `POST /api/v1/ingestion/persist` — upsert the current snapshot into PostGIS.
 
 ## Current capabilities
@@ -57,6 +60,9 @@ docker compose up --build
 - interactive national thermal-intelligence map;
 - API-first NASA FIRMS snapshot mode with a deterministic simulation fallback;
 - normalized NOAA-20, NOAA-21, and S-NPP VIIRS data with raw fields preserved server-side;
+- automatic content-addressed raw-FIRMS archival on every successful refresh, with overlap-safe event deduplication;
+- explicit 30/90-day readiness indicators that do not claim a learned baseline before the archive supports one;
+- deterministic India ADM0 point-in-polygon containment for both FIRMS detections and OSM facility context;
 - OpenStreetMap proximity context for refineries, flares, power plants, steelmaking sites, and quarries;
 - 2024 MCD12Q1.061 MODIS IGBP context sampled for every retained thermal cell, with an attributed map overlay and deterministic offline fixture;
 - conservative evidence-backed triage and one review alert per approximate 1 km grid cell;
@@ -73,6 +79,6 @@ docker compose up --build
 - responsive intelligence drawer on smaller screens;
 - Alembic/PostGIS schema and batched snapshot persistence.
 
-The checked-in source snapshots make the full judging flow deterministic. Set `FIRMS_MAP_KEY` only for authenticated Area API refreshes; never commit it.
+The checked-in source snapshots and India boundary make the full judging flow deterministic. Set `FIRMS_MAP_KEY` only for authenticated Area API refreshes; never commit it. Runtime archive files remain ignored by Git and can be mounted at `backend/data/archive`.
 
 See `PROJECT_LOG.md` for implementation history and `RESEARCH_REFERENCE_GLOSSARY.md` for sources, assumptions, and terminology.

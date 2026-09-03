@@ -38,6 +38,40 @@ export type LandCoverContext = {
   sourceUrl: string;
 };
 
+export type AdministrativeAreaContext = {
+  provider: "geoBoundaries";
+  dataset: "gbOpen";
+  countryName: "India";
+  iso3: "IND";
+  boundaryLevel: "ADM0";
+  boundaryId: string;
+  shapeId: string;
+  boundaryYear: number;
+  license: string;
+  containmentMethod: string;
+  sourceUrl: string;
+};
+
+export type IndiaBoundary = GeoJSON.FeatureCollection<
+  GeoJSON.Polygon | GeoJSON.MultiPolygon
+>;
+
+export type HistoryReadiness = {
+  observationWindowStart: string | null;
+  observationWindowEnd: string | null;
+  observedCalendarDays: number;
+  calendarSpanDays: number;
+  uniqueEvents: number;
+  uniqueCells: number;
+  archiveSnapshotFiles: number;
+  bundledSeedFiles: number;
+  readiness30Percent: number;
+  readiness90Percent: number;
+  status: "insufficient_history" | "thirty_day_candidate" | "ninety_day_ready";
+  methodology: string;
+  caveats: string[];
+};
+
 export type ThermalEvent = {
   id: string;
   shortId: string;
@@ -74,6 +108,7 @@ export type ThermalEvent = {
   modelVersion?: string;
   featureVersion?: string;
   landCover?: LandCoverContext;
+  administrativeArea?: AdministrativeAreaContext;
 };
 
 export type IndustrialFacility = {
@@ -98,6 +133,8 @@ export type DashboardDataset = {
   historicalEvents: ThermalEvent[];
   playback: PlaybackFrame[];
   facilityMonitors: FacilityMonitor[];
+  historyReadiness: HistoryReadiness | null;
+  boundary: IndiaBoundary | null;
 };
 
 export type ThermalClusterSummary = {

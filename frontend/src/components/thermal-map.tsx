@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import * as maplibregl from "maplibre-gl";
 import type { GeoJSONSource, Map as MapLibreMap } from "maplibre-gl";
 import { CLASS_META } from "@/lib/demo-data";
-import type { IndustrialFacility, ThermalEvent } from "@/lib/types";
+import type { IndiaBoundary, IndustrialFacility, ThermalEvent } from "@/lib/types";
 
 type ThermalMapProps = {
   events: ThermalEvent[];
@@ -15,6 +15,7 @@ type ThermalMapProps = {
   showSatellite?: boolean;
   showLandCover?: boolean;
   focusNonce?: number;
+  boundary?: IndiaBoundary | null;
 };
 
 type CanvasThermalMarker = {
@@ -91,6 +92,7 @@ export function ThermalMap({
   showSatellite = true,
   showLandCover = false,
   focusNonce = 0,
+  boundary = null,
 }: ThermalMapProps) {
   const isOperational = events.some((event) => event.dataOrigin === "nasa-firms");
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -254,6 +256,41 @@ export function ThermalMap({
     map.setLayoutProperty("nasa-modis-land-cover-layer", "visibility", visibility);
     containerRef.current?.setAttribute("data-land-cover-layer", visibility);
   }, [mapReady, showLandCover]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady || !boundary) return;
+    const source = map.getSource("india-adm0") as GeoJSONSource | undefined;
+    if (source) {
+      source.setData(boundary);
+    } else {
+      map.addSource("india-adm0", {
+        type: "geojson",
+        data: boundary,
+        attribution: "geoBoundaries gbOpen · CC0 1.0",
+      });
+      map.addLayer({
+        id: "india-adm0-fill",
+        type: "fill",
+        source: "india-adm0",
+        paint: {
+          "fill-color": "#28c5e5",
+          "fill-opacity": 0.025,
+        },
+      });
+      map.addLayer({
+        id: "india-adm0-line",
+        type: "line",
+        source: "india-adm0",
+        paint: {
+          "line-color": "rgba(104, 226, 250, 0.85)",
+          "line-width": ["interpolate", ["linear"], ["zoom"], 3, 0.8, 9, 1.8],
+          "line-opacity": 0.9,
+        },
+      });
+    }
+    containerRef.current?.setAttribute("data-boundary-layer", "india-adm0");
+  }, [boundary, mapReady]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -648,7 +685,7 @@ export function ThermalMap({
           <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
           <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
         </span>
-        Geospatial canvas · {isOperational ? "FIRMS snapshot" : "simulation cache"}
+        Geospatial canvas · {isOperational ? "FIRMS · India ADM0" : "simulation cache"}
       </div>
       <div className="coordinate-readout">
         <span ref={coordinateReadoutRef}>Z — · cursor coordinates</span>

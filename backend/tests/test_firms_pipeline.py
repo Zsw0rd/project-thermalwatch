@@ -1,5 +1,7 @@
 from app.config import get_settings
+from app.services.boundary import contains_point, load_india_boundary
 from app.services.firms import analytics_summary, load_events
+from app.services.osm import load_facilities
 
 
 def test_sample_pipeline_normalizes_and_filters_events() -> None:
@@ -14,6 +16,20 @@ def test_sample_pipeline_normalizes_and_filters_events() -> None:
     assert all(event.source_attribution.provider == "NASA FIRMS" for event in events)
     assert all(event.context_status.startswith("FIRMS_") for event in events)
     assert all(event.raw_payload for event in events)
+    boundary = load_india_boundary(settings)
+    assert boundary is not None
+    assert all(contains_point(boundary, event.latitude, event.longitude) for event in events)
+    assert all(event.administrative_area is not None for event in events)
+
+
+def test_osm_context_is_clipped_to_the_same_administrative_boundary() -> None:
+    boundary = load_india_boundary()
+    assert boundary is not None
+    facilities = load_facilities()
+    assert facilities
+    assert all(
+        contains_point(boundary, facility.latitude, facility.longitude) for facility in facilities
+    )
 
 
 def test_engineered_brightness_delta_is_consistent() -> None:

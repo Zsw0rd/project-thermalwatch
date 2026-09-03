@@ -196,7 +196,8 @@ def analytics_dashboard(events: list[NormalizedThermalEvent]) -> AnalyticsDashbo
         top_persistent_sources=persistent[:12],
         methodology=(
             "Observed FIRMS/OSM seven-day evidence with deterministic persistence and robust "
-            "median/MAD anomaly features; no trained ML or land-cover evidence is claimed."
+            "median/MAD anomaly features plus annual MODIS land-cover context; no trained ML "
+            "or incident confirmation is claimed."
         ),
     )
 

@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     firms_day_range: int = 1
     firms_sample_dir: Path = Path("data/samples")
     firms_cache_dir: Path = Path("data/cache")
+    firms_archive_dir: Path = Path("data/archive/firms")
+    india_boundary_file: Path = Path("data/samples/india_adm0_geoboundary.geojson")
     firms_request_timeout_seconds: int = 30
     india_bbox: tuple[float, float, float, float] = (68.0, 6.0, 98.0, 38.0)
 

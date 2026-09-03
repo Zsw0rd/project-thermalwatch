@@ -62,6 +62,20 @@ class LandCoverContext(BaseModel):
     source_url: str
 
 
+class AdministrativeAreaContext(BaseModel):
+    provider: Literal["geoBoundaries"] = "geoBoundaries"
+    dataset: Literal["gbOpen"] = "gbOpen"
+    country_name: Literal["India"] = "India"
+    iso3: Literal["IND"] = "IND"
+    boundary_level: Literal["ADM0"] = "ADM0"
+    boundary_id: str
+    shape_id: str
+    boundary_year: int
+    license: str
+    containment_method: str
+    source_url: str
+
+
 class NormalizedThermalEvent(BaseModel):
     id: str
     source: str
@@ -99,9 +113,10 @@ class NormalizedThermalEvent(BaseModel):
     context_status: str
     nearest_facility: FacilityContext | None = None
     land_cover: LandCoverContext | None = None
+    administrative_area: AdministrativeAreaContext | None = None
     source_attribution: SourceAttribution
     model_version: str = "rules_temporal_v2"
-    feature_version: str = "firms_osm_modis_igbp_temporal_7d_v2"
+    feature_version: str = "firms_osm_modis_igbp_india_adm0_temporal_v3"
     raw_payload: dict[str, str] = Field(exclude=True)
 
 
@@ -132,8 +147,38 @@ class AnalyticsSummary(BaseModel):
 class RefreshResponse(BaseModel):
     refreshed_at: datetime
     files: list[str]
+    archived_files: list[str] = Field(default_factory=list)
     normalized_events: int
     message: str
+
+
+class HistoricalReadiness(BaseModel):
+    generated_at: datetime
+    observation_window_start: datetime | None
+    observation_window_end: datetime | None
+    observed_calendar_days: int = Field(ge=0)
+    calendar_span_days: int = Field(ge=0)
+    unique_events: int = Field(ge=0)
+    unique_cells: int = Field(ge=0)
+    archive_snapshot_files: int = Field(ge=0)
+    bundled_seed_files: int = Field(ge=0)
+    target_30_days: int = 30
+    target_90_days: int = 90
+    readiness_30_percent: float = Field(ge=0, le=100)
+    readiness_90_percent: float = Field(ge=0, le=100)
+    status: Literal[
+        "insufficient_history",
+        "thirty_day_candidate",
+        "ninety_day_ready",
+    ]
+    methodology: str
+    caveats: list[str]
+
+
+class ArchiveResponse(BaseModel):
+    archived_at: datetime
+    archived_files: list[str]
+    history: HistoricalReadiness
 
 
 class LandCoverRefreshResponse(BaseModel):

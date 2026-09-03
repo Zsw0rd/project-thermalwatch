@@ -28,7 +28,8 @@ def test_events_endpoint_returns_attributed_firms_data() -> None:
     assert len(body["events"]) == 5
     assert body["events"][0]["source_attribution"]["provider"] == "NASA FIRMS"
     assert body["events"][0]["land_cover"]["provider"] == "NASA EOSDIS GIBS"
-    assert body["events"][0]["feature_version"] == "firms_osm_modis_igbp_temporal_7d_v2"
+    assert body["events"][0]["feature_version"] == "firms_osm_modis_igbp_india_adm0_temporal_v3"
+    assert body["events"][0]["administrative_area"]["iso3"] == "IND"
     assert "raw_payload" not in body["events"][0]
 
 
@@ -45,6 +46,24 @@ def test_land_cover_source_is_attributed_and_sampled() -> None:
 
 def test_land_cover_pixel_lookup_uses_standard_web_mercator_position() -> None:
     assert slippy_tile_position(19.076, 72.878) == (179, 114, 211, 45)
+
+
+def test_geography_and_historical_readiness_are_explicit() -> None:
+    geography = client.get("/api/v1/geography/india")
+    assert geography.status_code == 200
+    geography_body = geography.json()
+    assert geography_body["type"] == "FeatureCollection"
+    assert geography_body["features"][0]["geometry"]["type"] == "MultiPolygon"
+    assert geography_body["attribution"]["provider"] == "geoBoundaries"
+    assert geography_body["attribution"]["license"] == "CC0 1.0"
+
+    readiness = client.get("/api/v1/history/readiness")
+    assert readiness.status_code == 200
+    readiness_body = readiness.json()
+    assert readiness_body["observed_calendar_days"] >= 7
+    assert readiness_body["readiness_30_percent"] < 100
+    assert readiness_body["status"] == "insufficient_history"
+    assert "not evidence" in readiness_body["caveats"][0].lower()
 
 
 def test_event_filters_and_geojson() -> None:
@@ -131,9 +150,7 @@ def test_playback_frames_are_temporal_and_evidence_bounded() -> None:
     assert [frame["date"] for frame in payload["frames"]] == sorted(
         frame["date"] for frame in payload["frames"]
     )
-    assert sum(frame["detection_count"] for frame in payload["frames"]) == payload[
-        "total_events"
-    ]
+    assert sum(frame["detection_count"] for frame in payload["frames"]) == payload["total_events"]
     assert "not fire spread" in " ".join(payload["caveats"]).lower()
 
 

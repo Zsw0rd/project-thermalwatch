@@ -6,12 +6,14 @@ import tempfile
 from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
+from threading import Lock
 
 import httpx
 
 from app.config import Settings, get_settings
 from app.schemas.events import FacilityContext
 from app.schemas.facilities import FacilityRefreshResponse, IndustrialFacility
+from app.services.boundary import AdministrativeBoundary, contains_point, load_india_boundary
 
 OVERPASS_URLS = (
     "https://overpass-api.de/api/interpreter",
@@ -20,6 +22,10 @@ OVERPASS_URLS = (
 SAMPLE_FILENAME = "osm_india_industrial_context.json"
 FACILITY_GRID_DEGREES = 0.25
 FacilityGrid = dict[tuple[int, int], list[IndustrialFacility]]
+
+_facilities_cache: list[IndustrialFacility] | None = None
+_facilities_signature: tuple[tuple[str, int, int], ...] | None = None
+_facilities_lock = Lock()
 
 
 def _query(settings: Settings) -> str:
@@ -67,7 +73,10 @@ def _coordinates(element: dict[str, object]) -> tuple[float, float] | None:
     return None
 
 
-def _parse_facilities(payload: dict[str, object]) -> list[IndustrialFacility]:
+def _parse_facilities(
+    payload: dict[str, object],
+    boundary: AdministrativeBoundary | None = None,
+) -> list[IndustrialFacility]:
     facilities: list[IndustrialFacility] = []
     elements = payload.get("elements", [])
     if not isinstance(elements, list):
@@ -82,6 +91,8 @@ def _parse_facilities(payload: dict[str, object]) -> list[IndustrialFacility]:
             continue
         tags = {str(key): str(value) for key, value in tags_value.items()}
         lat, lon = coordinates
+        if boundary is not None and not contains_point(boundary, lat, lon):
+            continue
         element_type = str(element.get("type", "unknown"))
         element_id = str(element.get("id", "unknown"))
         facility_type = _facility_type(tags)
@@ -112,13 +123,25 @@ def _facility_path(settings: Settings) -> Path | None:
 
 
 def load_facilities(settings: Settings | None = None) -> list[IndustrialFacility]:
+    global _facilities_cache, _facilities_signature
     settings = settings or get_settings()
     path = _facility_path(settings)
     if path is None:
         return []
-    with path.open("r", encoding="utf-8") as handle:
-        payload = json.load(handle)
-    return _parse_facilities(payload)
+    signature_paths = [path]
+    if settings.india_boundary_file.exists():
+        signature_paths.append(settings.india_boundary_file)
+    signature = tuple(
+        (str(item.resolve()), item.stat().st_mtime_ns, item.stat().st_size)
+        for item in signature_paths
+    )
+    with _facilities_lock:
+        if _facilities_cache is None or _facilities_signature != signature:
+            with path.open("r", encoding="utf-8") as handle:
+                payload = json.load(handle)
+            _facilities_cache = _parse_facilities(payload, load_india_boundary(settings))
+            _facilities_signature = signature
+        return list(_facilities_cache)
 
 
 def refresh_facilities(settings: Settings | None = None) -> FacilityRefreshResponse:
@@ -146,7 +169,7 @@ def refresh_facilities(settings: Settings | None = None) -> FacilityRefreshRespo
                 last_error = exc
     if payload is None:
         raise RuntimeError("All configured public Overpass instances failed") from last_error
-    facilities = _parse_facilities(payload)
+    facilities = _parse_facilities(payload, load_india_boundary(settings))
     if not facilities:
         raise ValueError("Overpass returned no supported industrial facilities")
     with tempfile.NamedTemporaryFile(

@@ -3,6 +3,8 @@ import type {
   DashboardDataset,
   EventClass,
   FacilityMonitor,
+  HistoryReadiness,
+  IndiaBoundary,
   IndustrialFacility,
   PlaybackFrame,
   ReviewAlert,
@@ -67,6 +69,19 @@ type ApiEvidenceEvent = {
     group: "vegetation" | "cropland" | "built_up" | "barren" | "water" | "snow_ice" | "unclassified";
     native_resolution_m: number;
     sampling_method: string;
+    source_url: string;
+  } | null;
+  administrative_area: {
+    provider: "geoBoundaries";
+    dataset: "gbOpen";
+    country_name: "India";
+    iso3: "IND";
+    boundary_level: "ADM0";
+    boundary_id: string;
+    shape_id: string;
+    boundary_year: number;
+    license: string;
+    containment_method: string;
     source_url: string;
   } | null;
   source_attribution: {
@@ -225,6 +240,28 @@ type ApiAnalyticsDashboard = {
   methodology: string;
 };
 
+type ApiHistoryReadiness = {
+  observation_window_start: string | null;
+  observation_window_end: string | null;
+  observed_calendar_days: number;
+  calendar_span_days: number;
+  unique_events: number;
+  unique_cells: number;
+  archive_snapshot_files: number;
+  bundled_seed_files: number;
+  readiness_30_percent: number;
+  readiness_90_percent: number;
+  status: HistoryReadiness["status"];
+  methodology: string;
+  caveats: string[];
+};
+
+type ApiGeographyResponse = IndiaBoundary & {
+  attribution: Record<string, unknown>;
+  metadata_url: string;
+  limitations: string[];
+};
+
 const confidenceLabel = (value: ApiEvidenceEvent["confidence"]) =>
   value === "unknown" ? "Unspecified" : value[0].toUpperCase() + value.slice(1);
 
@@ -239,6 +276,7 @@ const adaptOperationalEvent = (event: ApiEvidenceEvent): ThermalEvent => {
   const facility = event.nearest_facility;
   const industrialContext = event.category === "industrial" && facility;
   const landCover = event.land_cover;
+  const administrativeArea = event.administrative_area;
 
   return {
     id: event.id,
@@ -247,7 +285,9 @@ const adaptOperationalEvent = (event: ApiEvidenceEvent): ThermalEvent => {
       event.cluster_sensor_count >= 2
         ? `Multi-sensor cluster ${event.cluster_id.slice(-4)}`
         : `VIIRS anomaly ${event.id.slice(0, 5).toUpperCase()}`,
-    region: "Configured India bounding-box feed",
+    region: administrativeArea
+      ? `${administrativeArea.country_name} · ${administrativeArea.provider} ${administrativeArea.boundary_level}`
+      : "Configured India retrieval extent",
     coordinates: [event.longitude, event.latitude],
     classification: event.classification,
     category: event.category,
@@ -325,6 +365,14 @@ const adaptOperationalEvent = (event: ApiEvidenceEvent): ThermalEvent => {
             source: `${landCover.provider} · ${landCover.product}`,
           }]
         : []),
+      ...(administrativeArea
+        ? [{
+            label: "Administrative containment",
+            value: `${administrativeArea.country_name} · ${administrativeArea.boundary_level}`,
+            impact: "neutral" as const,
+            source: `${administrativeArea.provider} ${administrativeArea.dataset} · ${administrativeArea.license}`,
+          }]
+        : []),
     ],
     history: event.temporal_history.length
       ? event.temporal_history.map((point) => ({
@@ -357,8 +405,39 @@ const adaptOperationalEvent = (event: ApiEvidenceEvent): ThermalEvent => {
           sourceUrl: landCover.source_url,
         }
       : undefined,
+    administrativeArea: administrativeArea
+      ? {
+          provider: administrativeArea.provider,
+          dataset: administrativeArea.dataset,
+          countryName: administrativeArea.country_name,
+          iso3: administrativeArea.iso3,
+          boundaryLevel: administrativeArea.boundary_level,
+          boundaryId: administrativeArea.boundary_id,
+          shapeId: administrativeArea.shape_id,
+          boundaryYear: administrativeArea.boundary_year,
+          license: administrativeArea.license,
+          containmentMethod: administrativeArea.containment_method,
+          sourceUrl: administrativeArea.source_url,
+        }
+      : undefined,
   };
 };
+
+const adaptHistoryReadiness = (body: ApiHistoryReadiness): HistoryReadiness => ({
+  observationWindowStart: body.observation_window_start,
+  observationWindowEnd: body.observation_window_end,
+  observedCalendarDays: body.observed_calendar_days,
+  calendarSpanDays: body.calendar_span_days,
+  uniqueEvents: body.unique_events,
+  uniqueCells: body.unique_cells,
+  archiveSnapshotFiles: body.archive_snapshot_files,
+  bundledSeedFiles: body.bundled_seed_files,
+  readiness30Percent: body.readiness_30_percent,
+  readiness90Percent: body.readiness_90_percent,
+  status: body.status,
+  methodology: body.methodology,
+  caveats: body.caveats,
+});
 
 const adaptCluster = (cluster: ApiCluster): ThermalClusterSummary => ({
   clusterId: cluster.cluster_id,
@@ -465,6 +544,8 @@ export async function fetchOperationalEvents(signal?: AbortSignal): Promise<Dash
     analyticsResponse,
     playbackResponse,
     monitorResponse,
+    readinessResponse,
+    geographyResponse,
   ] = await Promise.all([
     fetch(`${API_BASE_URL}/events?min_frp=1&window_hours=24&limit=2000`, {
       signal,
@@ -486,6 +567,8 @@ export async function fetchOperationalEvents(signal?: AbortSignal): Promise<Dash
     fetch(`${API_BASE_URL}/analytics/dashboard`, { signal, cache: "no-store" }),
     fetch(`${API_BASE_URL}/playback`, { signal, cache: "no-store" }),
     fetch(`${API_BASE_URL}/facility-monitors?limit=100`, { signal, cache: "no-store" }),
+    fetch(`${API_BASE_URL}/history/readiness`, { signal, cache: "no-store" }),
+    fetch(`${API_BASE_URL}/geography/india`, { signal, cache: "no-store" }),
   ]);
   if (!eventResponse.ok) {
     throw new Error(`AegisFire API returned ${eventResponse.status}`);
@@ -512,6 +595,12 @@ export async function fetchOperationalEvents(signal?: AbortSignal): Promise<Dash
   const monitorBody: ApiFacilityMonitorCollection = monitorResponse.ok
     ? ((await monitorResponse.json()) as ApiFacilityMonitorCollection)
     : { monitors: [] };
+  const readinessBody = readinessResponse.ok
+    ? ((await readinessResponse.json()) as ApiHistoryReadiness)
+    : null;
+  const geographyBody = geographyResponse.ok
+    ? ((await geographyResponse.json()) as ApiGeographyResponse)
+    : null;
   const facilities: IndustrialFacility[] = facilityBody.facilities.map((facility) => ({
     id: facility.osm_id,
     name: facility.name,
@@ -549,6 +638,10 @@ export async function fetchOperationalEvents(signal?: AbortSignal): Promise<Dash
     historicalEvents: historyBody.events.map(adaptOperationalEvent),
     playback: adaptPlayback(playbackBody),
     facilityMonitors: monitorBody.monitors.map(adaptFacilityMonitor),
+    historyReadiness: readinessBody ? adaptHistoryReadiness(readinessBody) : null,
+    boundary: geographyBody
+      ? { type: geographyBody.type, features: geographyBody.features }
+      : null,
   };
 }
 

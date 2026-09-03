@@ -25,6 +25,12 @@ from app.schemas.events import (
     SourceAttribution,
     TemporalHistoryPoint,
 )
+from app.services.boundary import (
+    administrative_area_context,
+    contains_point,
+    load_india_boundary,
+)
+from app.services.history_archive import archive_source_files
 from app.services.land_cover import (
     land_cover_cell_key,
     land_cover_source_path,
@@ -267,11 +273,16 @@ def alert_previews(events: list[NormalizedThermalEvent]) -> AlertCollection:
     )
 
 
-def _active_files(settings: Settings) -> list[Path]:
+def current_source_files(settings: Settings) -> list[Path]:
     cache_files = sorted(settings.firms_cache_dir.glob("*.csv"))
     if cache_files:
         return cache_files
     return sorted(settings.firms_sample_dir.glob("*.csv"))
+
+
+def _active_files(settings: Settings) -> list[Path]:
+    archive_files = sorted(settings.firms_archive_dir.rglob("*.csv"))
+    return [*archive_files, *current_source_files(settings)]
 
 
 def _file_source(path: Path, settings: Settings) -> tuple[str, str]:
@@ -297,6 +308,7 @@ def _signature(files: list[Path]) -> tuple[tuple[str, int, int], ...]:
 
 def _read_raw_events(settings: Settings) -> list[dict[str, object]]:
     west, south, east, north = settings.india_bbox
+    boundary = load_india_boundary(settings)
     rows: list[dict[str, object]] = []
 
     for path in _active_files(settings):
@@ -310,6 +322,8 @@ def _read_raw_events(settings: Settings) -> list[dict[str, object]]:
                 if lat is None or lon is None or frp is None:
                     continue
                 if not (west <= lon <= east and south <= lat <= north):
+                    continue
+                if boundary is not None and not contains_point(boundary, lat, lon):
                     continue
                 try:
                     acquired_at = _parse_acquired_at(
@@ -359,6 +373,9 @@ def _read_raw_events(settings: Settings) -> list[dict[str, object]]:
 
 def _build_events(settings: Settings) -> list[NormalizedThermalEvent]:
     raw_events = _read_raw_events(settings)
+    administrative_area = (
+        administrative_area_context() if load_india_boundary(settings) is not None else None
+    )
     facilities = load_facilities(settings)
     facility_index = build_facility_index(facilities)
     land_cover_contexts = load_land_cover_contexts(settings)
@@ -576,6 +593,7 @@ def _build_events(settings: Settings) -> list[NormalizedThermalEvent]:
                 ),
                 nearest_facility=facility_context,
                 land_cover=land_cover_context,
+                administrative_area=administrative_area,
                 source_attribution=SourceAttribution(
                     provider="NASA FIRMS",
                     product=str(row["source"]),
@@ -597,6 +615,8 @@ def load_events(settings: Settings | None = None) -> list[NormalizedThermalEvent
     land_cover_path = land_cover_source_path(settings)
     if land_cover_path:
         files = [*files, land_cover_path]
+    if settings.india_boundary_file.exists():
+        files = [*files, settings.india_boundary_file]
     current_signature = _signature(files)
     with _cache_lock:
         if _events_cache is None or _cache_signature != current_signature:
@@ -650,12 +670,15 @@ def refresh_source_files(settings: Settings | None = None) -> RefreshResponse:
             )
             downloaded.append(filename)
 
+    downloaded_paths = [settings.firms_cache_dir / filename for filename in downloaded]
+    archived_files = archive_source_files(downloaded_paths, settings)
     invalidate_event_cache()
     events = load_events(settings)
     refreshed_at = datetime.now(UTC)
     return RefreshResponse(
         refreshed_at=refreshed_at,
         files=downloaded,
+        archived_files=archived_files,
         normalized_events=len(events),
         message=(
             "Refreshed from the authenticated FIRMS Area API."

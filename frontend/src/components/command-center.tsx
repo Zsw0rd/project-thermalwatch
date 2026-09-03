@@ -49,6 +49,8 @@ import type {
   DashboardDataset,
   EventClass,
   FacilityMonitor,
+  HistoryReadiness,
+  IndiaBoundary,
   IndustrialFacility,
   PlaybackFrame,
   ReviewAlert,
@@ -441,10 +443,12 @@ function PlaybackWorkspace({
   frames,
   events,
   facilities,
+  boundary,
 }: {
   frames: PlaybackFrame[];
   events: ThermalEvent[];
   facilities: IndustrialFacility[];
+  boundary: IndiaBoundary | null;
 }) {
   const [frameIndex, setFrameIndex] = useState(Math.max(0, frames.length - 1));
   const [isPlaying, setIsPlaying] = useState(false);
@@ -492,6 +496,7 @@ function PlaybackWorkspace({
           showGrid
           showSatellite
           focusNonce={0}
+          boundary={boundary}
         />
       </div>
       <div className="timeline-control">
@@ -537,6 +542,18 @@ function SourcesWorkspace({ dataset }: { dataset: DashboardDataset | null }) {
       detail: `${dataset?.analytics?.observationWindowDays ?? "—"}-day recurrence and median/MAD deviation`,
       source: "Deterministic · explainable · no trained ML claim",
     },
+    {
+      title: "FIRMS history archive",
+      state: dataset?.historyReadiness?.status === "ninety_day_ready" ? "90-day ready" : "Accumulating",
+      detail: `${dataset?.historyReadiness?.observedCalendarDays ?? "—"}/30 observed UTC dates · ${dataset?.historyReadiness?.archiveSnapshotFiles ?? "—"} immutable snapshot files`,
+      source: "Content-addressed raw CSV · overlapping records deduplicated",
+    },
+    {
+      title: "India ADM0 boundary",
+      state: "Containment filter",
+      detail: "FIRMS detections and OSM facilities clipped by point-in-polygon containment",
+      source: "geoBoundaries gbOpen · 2014 representation · CC0 1.0",
+    },
   ];
   return (
     <section className="stage-workspace">
@@ -571,9 +588,11 @@ function SourcesWorkspace({ dataset }: { dataset: DashboardDataset | null }) {
 function AnalyticsWorkspace({
   analytics,
   clusters,
+  historyReadiness,
 }: {
   analytics: AnalyticsDashboard | null;
   clusters: ThermalClusterSummary[];
+  historyReadiness: HistoryReadiness | null;
 }) {
   if (!analytics) {
     return <section className="stage-workspace grid place-items-center text-sm text-slate-500">Analytics are unavailable in simulation mode.</section>;
@@ -591,6 +610,28 @@ function AnalyticsWorkspace({
         <div><span>Elevated clusters</span><strong>{analytics.elevatedClusters}</strong></div>
         <div><span>Unmapped persistent</span><strong>{analytics.unmappedPersistentCandidates}</strong></div>
       </div>
+      {historyReadiness && (
+        <section className="readiness-panel">
+          <div>
+            <p className="eyebrow">Historical baseline readiness</p>
+            <strong>{historyReadiness.observedCalendarDays} observed UTC dates</strong>
+            <span>{historyReadiness.archiveSnapshotFiles} immutable files · {historyReadiness.uniqueEvents.toLocaleString("en-IN")} deduplicated detections</span>
+          </div>
+          <div className="readiness-targets">
+            <div>
+              <span>30-day candidate baseline</span>
+              <i><b style={{ width: `${historyReadiness.readiness30Percent}%` }} /></i>
+              <strong>{historyReadiness.readiness30Percent.toFixed(1)}%</strong>
+            </div>
+            <div>
+              <span>90-day seasonal baseline</span>
+              <i><b style={{ width: `${historyReadiness.readiness90Percent}%` }} /></i>
+              <strong>{historyReadiness.readiness90Percent.toFixed(1)}%</strong>
+            </div>
+          </div>
+          <small>{historyReadiness.status.replaceAll("_", " ")} · Coverage telemetry only; no learned baseline is claimed yet.</small>
+        </section>
+      )}
       <div className="analytics-grid">
         <section className="analytics-card">
           <div className="flex items-center justify-between"><p className="eyebrow">Daily FIRMS activity</p><span>detections</span></div>
@@ -895,11 +936,12 @@ export function CommandCenter() {
                 showSatellite={showSatellite}
                 showLandCover={showLandCover && dataView === "operational"}
                 focusNonce={mapFocusNonce}
+                boundary={dataView === "operational" ? operationalDataset?.boundary : null}
               />
             </div>
             <div className="map-statusbar">
               <span><ShieldCheck size={11} className="text-emerald-400" /> Attribution preserved</span>
-              <span><Database size={11} /> FIRMS · MODIS IGBP · GIBS imagery · OSM</span>
+              <span><Database size={11} /> FIRMS · MODIS IGBP · GIBS · OSM · geoBoundaries</span>
               <span className="ml-auto font-mono">{dataView === "operational" ? `NASA FIRMS · ${operationalDataset?.returned ?? 0} SHOWN` : "SIMULATION DATA · 01 SEP 2026"}</span>
             </div>
           </section>
@@ -914,6 +956,7 @@ export function CommandCenter() {
             frames={operationalDataset?.playback ?? []}
             events={operationalDataset?.historicalEvents ?? []}
             facilities={operationalDataset?.facilities ?? []}
+            boundary={operationalDataset?.boundary ?? null}
           />
         )}
         {nav === "Sources" && <SourcesWorkspace dataset={operationalDataset} />}
@@ -921,11 +964,12 @@ export function CommandCenter() {
           <AnalyticsWorkspace
             analytics={operationalDataset?.analytics ?? null}
             clusters={operationalDataset?.clusters ?? []}
+            historyReadiness={operationalDataset?.historyReadiness ?? null}
           />
         )}
 
         <div className="mt-3 flex items-center justify-between rounded-sm border border-amber-300/15 bg-amber-300/[0.035] px-3 py-2 text-[9px] text-slate-500">
-          <span className="flex items-center gap-2"><ShieldCheck size={12} className="text-amber-300" /> {dataView === "operational" ? "Operational NASA FIRMS detections: thermal anomalies only. Seven-day recurrence, OSM proximity, and annual MODIS land cover are applied; long-term history and incident confirmation remain unavailable." : "Demonstration environment: events and intelligence outputs are simulated and are not operational incident reports."}</span>
+          <span className="flex items-center gap-2"><ShieldCheck size={12} className="text-amber-300" /> {dataView === "operational" ? "Operational NASA FIRMS detections: thermal anomalies only. India ADM0 containment, OSM proximity, annual MODIS land cover, and accumulated history are applied; readiness is disclosed and no incident is confirmed." : "Demonstration environment: events and intelligence outputs are simulated and are not operational incident reports."}</span>
           <span className="hidden items-center gap-1 text-slate-600 sm:flex">Methodology <ChevronRight size={11} /></span>
         </div>
       </section>

@@ -411,3 +411,53 @@ Rename the complete product and repository identity from its former name to `Aeg
 - Deployments with an existing explicit `DATABASE_URL` or PostgreSQL environment retain those values until an operator elects to migrate them.
 - The active local checkout directory is not moved while the desktop task and development servers are using it; the repository, application, packages, runtime defaults, and remote identity are renamed.
 - Continue with the planned 30/90-day archival and seasonal-baseline stage under the AegisFire identity.
+
+## 2026-09-03 — FIRMS history readiness and India ADM0 containment
+
+### Objective
+
+Advance the next backend and web stages together: preserve every successful FIRMS refresh as immutable history, disclose honest 30/90-day baseline readiness, and replace rectangular national scoping with an attributed India administrative boundary.
+
+### Areas touched
+
+- runtime settings, environment template, ignored archive storage, and Docker archive mount
+- normalized event, refresh, archive, historical-readiness, and administrative-area contracts
+- new boundary and history-archive services
+- FIRMS and OSM ingestion/filtering, cache signatures, and source registry
+- geography, readiness, and manual archive API routes
+- pinned `backend/data/samples/india_adm0_geoboundary.geojson` offline fixture
+- frontend API adapter/types, per-event evidence, map boundary layer, Sources workspace, Analytics readiness panel, playback map, status copy, and responsive styles
+- backend unit/API coverage, README, research glossary, and this living log
+
+### Decisions and important implementation details
+
+- Successful FIRMS refreshes now copy each raw CSV into `data/archive/firms/<UTC-date>/<sha256-prefix>/<original-name>`. Copying is idempotent for identical bytes and retains changed rolling snapshots independently.
+- Event loading combines archived and current CSVs, then applies the existing stable source/satellite/time/coordinate fingerprint so overlap never inflates normalized counts. Raw fields remain server-side on every retained record.
+- Added `/history/readiness` with distinct acquisition dates, inclusive span, unique event/cell counts, archive/seed file counts, 30/90-day progress, methodology, and caveats. The current eight observed dates are explicitly `insufficient_history`; no learned or seasonal baseline is claimed.
+- Added `/ingestion/firms/archive-current` for a network-free first archive and made live FIRMS refresh archive automatically before normalization.
+- Pinned the full-resolution geoBoundaries gbOpen India ADM0 MultiPolygon and implemented typed, dependency-free point-in-polygon containment with hole and boundary-segment handling.
+- FIRMS points and OSM representative points are retrieved through their existing broad bounding extent, then clipped to the same polygon. Event evidence preserves boundary ID, represented year, method, license, and exact source URL.
+- The web map renders the authoritative scope outline above imagery and passes it through both Overview and Playback. Sources and Analytics now expose geography provenance and archive readiness directly to analysts.
+- Corrected the analytics methodology copy to acknowledge its annual MODIS contextual evidence while continuing to disclaim trained-ML and incident-confirmation claims.
+
+### Verification performed and result
+
+- Boundary checks retained New Delhi, Bengaluru, and Port Blair and excluded Lahore, Dhaka, and Colombo.
+- Retained offline result after clipping: 1,566 unique FIRMS detections across 922 cells and eight UTC dates; 209 detections are in the latest 24-hour window. Categories are 794 agricultural, 454 industrial, 256 vegetation, and 62 unknown candidates.
+- OSM containment retained 14,543 supported representative points; current derived outputs include 17 persistent candidates, 77 recurring candidates, one elevated cluster, 14 review alerts, and 125 facility monitors.
+- Historical readiness is 26.7% toward 30 observed dates and 8.9% toward 90, correctly reported as insufficient history.
+- Seeded the first local immutable archive through the network-free ingestion route: six current NASA CSV files were retained without changing the eight-date readiness count.
+- `.venv\Scripts\python.exe -m ruff check app tests alembic` — passed.
+- `.venv\Scripts\python.exe -m pytest -q` — 21 tests passed, including boundary truth points, all-event/all-facility containment, archive idempotence/versioning, geography attribution, and readiness disclosure; one upstream Starlette/httpx warning remains.
+- `npm run lint` — passed.
+- `npm run build` — passed with strict TypeScript and Next.js static generation.
+- Live browser Overview QA — 173 in-scope current-window detections rendered as 15 national-view marker groups; grid, VIIRS/MODIS imagery, India ADM0 layer, and exact per-event administrative evidence were active with no map error.
+- Live browser Sources/Analytics QA — seven attributed source cards rendered, the seeded archive updated to six immutable files, and the readiness panel displayed 26.7%/8.9% progress with the insufficient-history disclaimer.
+- Browser attribution/diagnostics — the map control included `geoBoundaries gbOpen · CC0 1.0`; no warning or error logs were emitted.
+
+### Known limitations or next concrete task
+
+- Runtime history still has only eight distinct acquisition dates until successful daily refreshes accumulate or an authenticated Area API backfill is performed; missing days are never interpolated.
+- The boundary represents 2014 and is an open administrative geometry, not a territorial claim or authoritative survey boundary.
+- OSM ways and relations still use representative points, so national containment and facility distance can differ from full-polygon results near borders or large sites.
+- The next intelligence stage is metric spatial clustering and empirical validation against reviewed facilities before approximate cells can be treated as source-level entities.
