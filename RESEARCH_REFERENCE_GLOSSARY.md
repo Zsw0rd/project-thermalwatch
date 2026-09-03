@@ -389,3 +389,45 @@ A serialized trained estimator plus the metadata needed to identify its feature 
 ### Confusion matrix
 
 A table comparing reference labels by row with predicted labels by column. Diagonal cells are agreements and off-diagonal cells are disagreements; when the reference labels are weak, the matrix describes weak-label agreement rather than validated classification performance.
+
+## 2026-09-03 — Explainability, clustering sensitivity, and registry controls
+
+### Verified implementation observations
+
+- The deterministic eight-variant sensitivity sweep covers epsilon values of 500, 750, 1,000, and 1,500 m at minimum-density values of two and three. It evaluates 1,566 retained detections and does not alter the operational grouping.
+- The operational 750 m/two-sample control produces 777 analytical clusters, 256 multi-event clusters, 33.3% noise, no border points, a 725 m supported-cluster P95 radius, and a largest cluster of 84 observations.
+- The 1,000 m/two-sample variant retains 97.8% pairwise co-membership Jaccard agreement with the control while producing 766 clusters and 32.5% noise. The 1,500 m/two-sample variant drops to 79.9% agreement and increases the largest cluster to 99 observations; this is diagnostic evidence of parameter sensitivity, not proof that either configuration is better.
+- Three-sample variants expose border roles but leave approximately half the observations as DBSCAN noise in this short dataset. This demonstrates a meaningful density tradeoff but cannot determine the scientifically correct parameters without reviewed source examples.
+- The event evidence graph currently connects FIRMS measurement, observed recurrence, metric grouping, OSM proximity/absence, and annual MODIS land-cover context to the deterministic candidate classification. A limitation node always constrains the interpretation.
+- The registry reports exactly one serving model, `rules_temporal_metric_v3`. Benchmark entries are non-serving, and `rules_temporal_metric_v3` is also the explicit rollback target.
+
+### Engineering assumptions and controls
+
+- Pairwise co-membership Jaccard is calculated from pairs of non-noise observations assigned to the same cluster. It measures how similarly two configurations group observations relative to their union of grouped pairs; it is not a ground-truth clustering score.
+- The parameter sweep runs independently from the primary dashboard request. Failure or delay in evaluation telemetry must not block the operational map or replace the deterministic control configuration.
+- Evidence-graph edges use `supports`, `contextualizes`, or `limits`. They explain deterministic application logic and must not be interpreted as causal, physical, ownership, or incident relationships.
+- Registry promotion is intentionally non-automatic. A benchmark winner cannot become serving without reviewed-label coverage, spatial and temporal evaluation, calibration and failure-mode review, artifact-integrity checks, a shadow deployment, and an explicit human decision.
+
+### Evidence graph
+
+A structured set of attributed evidence nodes and directed relationships leading to an application interpretation. In AegisFire it explains which measurements and contexts supported or limited a candidate label while preserving a mandatory non-confirmation boundary.
+
+### Co-membership Jaccard
+
+The size of the intersection of two configurations' same-cluster observation-pair sets divided by the size of their union. A value of one means identical supported pair membership relative to the control; it does not mean the clusters are correct.
+
+### Parameter sensitivity sweep
+
+A controlled comparison that changes clustering parameters and records how grouping diagnostics respond. It reveals fragile or stable behavior but cannot select scientifically valid parameters without external or reviewed reference labels.
+
+### Model registry
+
+A versioned inventory describing model family, lifecycle, serving state, label provenance, feature contract, device, artifact integrity, evaluation scope, and promotion state. Registry presence does not imply deployment approval.
+
+### Shadow deployment
+
+Running a candidate alongside the operational model without allowing it to drive user-facing classifications or actions. Its outputs can be compared safely before a separate promotion decision.
+
+### Rollback target
+
+The known operational version to which inference can return if a promoted model fails acceptance or monitoring criteria. AegisFire currently records the deterministic rules model as that target.

@@ -44,19 +44,28 @@ import {
   YAxis,
 } from "recharts";
 import { CLASS_META, DEMO_EVENTS } from "@/lib/demo-data";
-import { createClusterReview, fetchOperationalEvents, updateAlertReview } from "@/lib/api";
+import {
+  createClusterReview,
+  fetchClusteringSensitivity,
+  fetchEventEvidenceGraph,
+  fetchOperationalEvents,
+  updateAlertReview,
+} from "@/lib/api";
 import type {
   AnalyticsDashboard,
+  ClusteringSensitivityReport,
   ClusteringDiagnostics,
   ClusterReview,
   ClusterReviewLabel,
   DashboardDataset,
   EventClass,
+  EventEvidenceGraph,
   FacilityMonitor,
   HistoryReadiness,
   IndiaBoundary,
   IndustrialFacility,
   ModelBenchmarkEnvelope,
+  ModelRegistry,
   ModelTrainingReadiness,
   PlaybackFrame,
   ReviewAlert,
@@ -168,7 +177,13 @@ function EventRow({
   );
 }
 
-function EvidencePanel({ event }: { event: ThermalEvent }) {
+function EvidencePanel({
+  event,
+  evidenceGraph,
+}: {
+  event: ThermalEvent;
+  evidenceGraph: EventEvidenceGraph | null;
+}) {
   const gradientId = `frp-fill-${useId().replaceAll(":", "")}`;
   const isOperational = event.dataOrigin === "nasa-firms";
 
@@ -210,6 +225,35 @@ function EvidencePanel({ event }: { event: ThermalEvent }) {
             <p className="mt-2 text-[11px] leading-relaxed text-slate-400">{event.summary}</p>
           </div>
         </section>
+
+        {isOperational && (
+          <section className="event-evidence-graph">
+            <div className="mb-3 flex items-center justify-between">
+              <p className="eyebrow">Explainable evidence graph</p>
+              <span>{evidenceGraph ? `${evidenceGraph.edges.length} attributed links` : "Loading graph…"}</span>
+            </div>
+            {evidenceGraph && (
+              <>
+                <div className="event-graph-inputs">
+                  {evidenceGraph.nodes
+                    .filter((node) => !["classification", "limitation"].includes(node.kind))
+                    .map((node) => (
+                      <div key={node.nodeId} className={`direction-${node.direction}`}>
+                        <i />
+                        <span><strong>{node.label}</strong><small>{node.value}</small><em>{node.source}</em></span>
+                      </div>
+                    ))}
+                </div>
+                <div className="event-graph-outcome">
+                  <span>Evidence-supported candidate</span>
+                  <strong>{evidenceGraph.classification}</strong>
+                  <small>{Math.round(evidenceGraph.confidence * 100)}% rules confidence · {evidenceGraph.modelVersion}</small>
+                </div>
+                <p className="event-graph-boundary"><ShieldCheck size={11} /> {evidenceGraph.interpretationBoundary}</p>
+              </>
+            )}
+          </section>
+        )}
 
         <section className="grid grid-cols-2 gap-px overflow-hidden rounded-sm border border-white/[0.07] bg-white/[0.07]">
           {[
@@ -598,11 +642,13 @@ function AnalyticsWorkspace({
   clusters,
   historyReadiness,
   clusteringDiagnostics,
+  clusteringSensitivity,
 }: {
   analytics: AnalyticsDashboard | null;
   clusters: ThermalClusterSummary[];
   historyReadiness: HistoryReadiness | null;
   clusteringDiagnostics: ClusteringDiagnostics | null;
+  clusteringSensitivity: ClusteringSensitivityReport | null;
 }) {
   if (!analytics) {
     return <section className="stage-workspace grid place-items-center text-sm text-slate-500">Analytics are unavailable in simulation mode.</section>;
@@ -671,6 +717,30 @@ function AnalyticsWorkspace({
           </div>
         </section>
       )}
+      <section className="sensitivity-card">
+        <div className="model-section-heading">
+          <div><p className="eyebrow">Parameter sensitivity · evaluation only</p><h3>DBSCAN stability sweep</h3></div>
+          <span>{clusteringSensitivity ? `${clusteringSensitivity.variants.length} deterministic variants` : "Computing variants…"}</span>
+        </div>
+        {clusteringSensitivity ? (
+          <div className="sensitivity-table-scroll">
+            <div className="sensitivity-table sensitivity-table-head"><span>Configuration</span><span>Clusters</span><span>Supported</span><span>Noise</span><span>Border</span><span>P95 radius</span><span>Largest</span><span>Membership vs control</span></div>
+            {clusteringSensitivity.variants.map((variant) => (
+              <div key={`${variant.epsilonM}-${variant.minSamples}`} className={`sensitivity-table ${variant.isOperationalSetting ? "is-operational" : ""}`}>
+                <span><strong>{variant.epsilonM.toLocaleString("en-IN")} m · min {variant.minSamples}</strong><small>{variant.isOperationalSetting ? "operational control" : "evaluation variant"}</small></span>
+                <span>{variant.totalClusters}</span>
+                <span>{variant.multiEventClusters}</span>
+                <span>{variant.noisePercent.toFixed(1)}%</span>
+                <span>{variant.borderEvents}</span>
+                <span>{variant.p95SupportedRadiusM.toFixed(0)} m</span>
+                <span>{variant.largestClusterEvents}</span>
+                <span>{(variant.coMembershipJaccardVsOperational * 100).toFixed(1)}%</span>
+              </div>
+            ))}
+          </div>
+        ) : <p className="model-empty">The sweep runs separately so operational map loading is never blocked.</p>}
+        {clusteringSensitivity && <p className="sensitivity-boundary"><ShieldCheck size={11} /> {clusteringSensitivity.caveats[0]} Reviewed examples remain required before parameter calibration.</p>}
+      </section>
       <div className="analytics-grid">
         <section className="analytics-card">
           <div className="flex items-center justify-between"><p className="eyebrow">Daily FIRMS activity</p><span>detections</span></div>
@@ -886,9 +956,11 @@ const modelDisplayName = (model: string) => ({
 function ModelsWorkspace({
   readiness,
   benchmark,
+  registry,
 }: {
   readiness: ModelTrainingReadiness | null;
   benchmark: ModelBenchmarkEnvelope | null;
+  registry: ModelRegistry | null;
 }) {
   if (!readiness) {
     return <section className="stage-workspace grid place-items-center text-sm text-slate-500">Model governance is unavailable in simulation mode.</section>;
@@ -912,13 +984,46 @@ function ModelsWorkspace({
   const gateReady = readiness.status === "ready_for_reviewed_training";
   const gpu = report?.gpuInventory.devices[0];
 
+  const exportGovernanceBrief = () => {
+    const lines = [
+      "# AegisFire model governance brief",
+      "",
+      `Generated: ${new Date().toISOString()}`,
+      `Operational model: ${registry?.operationalVersion ?? readiness.currentOperationalModel}`,
+      `Reviewed-label gate: ${readiness.eligibleReviewedSamples}/${readiness.requiredReviewedSamples}`,
+      `Benchmark status: ${benchmark?.status ?? "unavailable"}`,
+      `Benchmark scope: ${report?.evaluationLanguage ?? "not run"}`,
+      `Spatial split: ${report ? `${report.trainSpatialGroups} train groups / ${report.testSpatialGroups} held-out groups / ${report.spatialGroupOverlap.length} overlapping` : "unavailable"}`,
+      "",
+      "## Registry",
+      ...(registry?.entries.map((entry) => (
+        `- ${entry.version}: ${entry.lifecycle}; serving=${entry.serving}; device=${entry.device}; promotion=${entry.promotionStatus}`
+      )) ?? ["- Registry unavailable"]),
+      "",
+      "## Promotion policy",
+      ...(registry?.promotionPolicy.map((item) => `- ${item}`) ?? ["- Policy unavailable"]),
+      "",
+      "## Interpretation boundary",
+      "Weak-label agreement is not validation accuracy. No benchmark candidate is automatically promoted, and no output confirms an incident.",
+    ];
+    const url = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/markdown" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "aegisfire-model-governance-brief.md";
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <section className="stage-workspace models-stage">
       <div className="stage-header">
         <div><p className="eyebrow">Governed model lifecycle</p><h2>Training readiness and benchmark laboratory</h2></div>
-        <span className={`model-gate-badge ${gateReady ? "is-ready" : "is-blocked"}`}>
-          {gateReady ? "Reviewed training gate ready" : "Production gate blocked"}
-        </span>
+        <div className="model-header-actions">
+          <button type="button" onClick={exportGovernanceBrief}><Database size={12} /> Export governance brief</button>
+          <span className={`model-gate-badge ${gateReady ? "is-ready" : "is-blocked"}`}>
+            {gateReady ? "Reviewed training gate ready" : "Production gate blocked"}
+          </span>
+        </div>
       </div>
 
       <section className="model-boundary-banner">
@@ -1032,6 +1137,31 @@ function ModelsWorkspace({
         <div><ShieldCheck size={14} /><span><strong>Label policy</strong>{readiness.labelPolicy}</span></div>
         <div><Grid3X3 size={14} /><span><strong>Split policy</strong>{readiness.splitPolicy}</span></div>
       </section>
+
+      {registry && (
+        <section className="model-registry-card">
+          <div className="model-section-heading">
+            <div><p className="eyebrow">Versioned control plane</p><h3>Model registry</h3></div>
+            <span>Rollback: {registry.rollbackTarget}</span>
+          </div>
+          <div className="registry-table-scroll">
+            <div className="registry-table registry-table-head"><span>Version / family</span><span>Lifecycle</span><span>Serving</span><span>Label source</span><span>Artifact integrity</span><span>Promotion state</span></div>
+            {registry.entries.map((entry) => (
+              <div key={entry.version} className={`registry-table ${entry.serving ? "is-serving" : ""}`}>
+                <span><strong>{entry.version}</strong><small>{entry.family} · {entry.device}</small></span>
+                <span>{entry.lifecycle.replaceAll("_", " ")}</span>
+                <span className={entry.serving ? "text-emerald-300" : "text-slate-600"}>{entry.serving ? "yes" : "no"}</span>
+                <span>{entry.labelProvenance.replaceAll("_", " ")}</span>
+                <span title={entry.artifactSha256 ?? "No binary artifact"}>{entry.artifactSha256 ? `${entry.artifactSha256.slice(0, 12)}…` : "not applicable"}</span>
+                <span>{entry.promotionStatus.replaceAll("_", " ")}</span>
+              </div>
+            ))}
+          </div>
+          <div className="registry-policy">
+            {registry.promotionPolicy.map((item, index) => <p key={item}><b>{String(index + 1).padStart(2, "0")}</b>{item}</p>)}
+          </div>
+        </section>
+      )}
     </section>
   );
 }
@@ -1043,6 +1173,8 @@ export function CommandCenter() {
   const [nav, setNav] = useState("Overview");
   const [mobileIntelOpen, setMobileIntelOpen] = useState(false);
   const [operationalDataset, setOperationalDataset] = useState<DashboardDataset | null>(null);
+  const [evidenceGraph, setEvidenceGraph] = useState<EventEvidenceGraph | null>(null);
+  const [clusteringSensitivity, setClusteringSensitivity] = useState<ClusteringSensitivityReport | null>(null);
   const [dataView, setDataView] = useState<"operational" | "simulation">("simulation");
   const [apiStatus, setApiStatus] = useState<"loading" | "ready" | "unavailable">("loading");
   const [showFacilities, setShowFacilities] = useState(true);
@@ -1072,6 +1204,17 @@ export function CommandCenter() {
     return () => controller.abort();
   }, []);
 
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchClusteringSensitivity(controller.signal)
+      .then(setClusteringSensitivity)
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setClusteringSensitivity(null);
+      });
+    return () => controller.abort();
+  }, []);
+
   const activeEvents =
     dataView === "operational" && operationalDataset
       ? operationalDataset.events
@@ -1097,6 +1240,20 @@ export function CommandCenter() {
 
   const selectedEvent =
     activeEvents.find((event) => event.id === effectiveSelectedId) ?? activeEvents[0] ?? DEMO_EVENTS[0];
+
+  useEffect(() => {
+    if (dataView !== "operational") return;
+    const controller = new AbortController();
+    fetchEventEvidenceGraph(selectedEvent.id, controller.signal)
+      .then(setEvidenceGraph)
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [dataView, selectedEvent.id]);
+
+  const selectedEvidenceGraph =
+    dataView === "operational" && evidenceGraph?.eventId === selectedEvent.id
+      ? evidenceGraph
+      : null;
 
   const highFrpCount = activeEvents.filter((event) => event.frp >= 20).length;
   const corroboratedCount = activeEvents.filter((event) => (event.sensorCount ?? 1) >= 2).length;
@@ -1318,7 +1475,7 @@ export function CommandCenter() {
             </div>
           </section>
 
-          {isDesktop && <EvidencePanel event={selectedEvent} />}
+          {isDesktop && <EvidencePanel event={selectedEvent} evidenceGraph={selectedEvidenceGraph} />}
         </div>}
 
         {nav === "Events" && <AlertsWorkspace alerts={operationalDataset?.alerts ?? []} onUpdate={handleAlertReview} />}
@@ -1338,6 +1495,7 @@ export function CommandCenter() {
             clusters={operationalDataset?.clusters ?? []}
             historyReadiness={operationalDataset?.historyReadiness ?? null}
             clusteringDiagnostics={operationalDataset?.clusteringDiagnostics ?? null}
+            clusteringSensitivity={clusteringSensitivity}
           />
         )}
         {nav === "Validate" && (
@@ -1355,6 +1513,7 @@ export function CommandCenter() {
           <ModelsWorkspace
             readiness={operationalDataset?.modelReadiness ?? null}
             benchmark={operationalDataset?.modelBenchmark ?? null}
+            registry={operationalDataset?.modelRegistry ?? null}
           />
         )}
 
@@ -1368,7 +1527,7 @@ export function CommandCenter() {
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm min-[1120px]:hidden" onClick={() => setMobileIntelOpen(false)}>
           <div className="absolute bottom-0 right-0 top-0 w-full max-w-md bg-[#071018] shadow-2xl" onClick={(event) => event.stopPropagation()}>
             <button type="button" onClick={() => setMobileIntelOpen(false)} className="absolute right-4 top-4 z-10 icon-button" aria-label="Close intelligence panel"><X size={15} /></button>
-            <EvidencePanel event={selectedEvent} />
+            <EvidencePanel event={selectedEvent} evidenceGraph={selectedEvidenceGraph} />
           </div>
         </div>
       )}

@@ -439,3 +439,92 @@ class ModelBenchmarkEnvelope(BaseModel):
     status: Literal["not_run", "development_only", "reviewed_evaluation"]
     message: str
     report: dict[str, object] | None = None
+
+
+class EvidenceGraphNode(BaseModel):
+    node_id: str
+    kind: Literal[
+        "observation",
+        "temporal",
+        "spatial",
+        "context",
+        "classification",
+        "limitation",
+    ]
+    label: str
+    value: str
+    source: str
+    source_url: str | None = None
+    direction: Literal["supports", "limits", "neutral"]
+
+
+class EvidenceGraphEdge(BaseModel):
+    source_node_id: str
+    target_node_id: str
+    relation: Literal["supports", "limits", "contextualizes"]
+
+
+class EventEvidenceGraph(BaseModel):
+    generated_at: datetime
+    event_id: str
+    cluster_id: str
+    classification_node_id: str
+    classification: str
+    category: EventCategory
+    confidence: float = Field(ge=0, le=1)
+    model_version: str
+    feature_version: str
+    nodes: list[EvidenceGraphNode]
+    edges: list[EvidenceGraphEdge]
+    interpretation_boundary: str
+
+
+class ClusteringSensitivityVariant(BaseModel):
+    epsilon_m: float = Field(gt=0)
+    min_samples: int = Field(ge=1)
+    is_operational_setting: bool
+    total_clusters: int = Field(ge=0)
+    multi_event_clusters: int = Field(ge=0)
+    largest_cluster_events: int = Field(ge=0)
+    core_events: int = Field(ge=0)
+    border_events: int = Field(ge=0)
+    noise_events: int = Field(ge=0)
+    noise_percent: float = Field(ge=0, le=100)
+    median_supported_radius_m: float = Field(ge=0)
+    p95_supported_radius_m: float = Field(ge=0)
+    maximum_supported_radius_m: float = Field(ge=0)
+    co_membership_jaccard_vs_operational: float = Field(ge=0, le=1)
+
+
+class ClusteringSensitivityReport(BaseModel):
+    generated_at: datetime
+    event_count: int = Field(ge=0)
+    operational_epsilon_m: float = Field(gt=0)
+    operational_min_samples: int = Field(ge=1)
+    variants: list[ClusteringSensitivityVariant]
+    methodology: str
+    caveats: list[str]
+
+
+class ModelRegistryEntry(BaseModel):
+    version: str
+    family: str
+    lifecycle: Literal["operational", "development_only", "evaluation_only"]
+    serving: bool
+    label_provenance: str
+    feature_version: str
+    artifact_file: str | None = None
+    artifact_sha256: str | None = None
+    device: str
+    metric_name: str | None = None
+    metric_value: float | None = Field(default=None, ge=0, le=1)
+    promotion_status: str
+    notes: list[str]
+
+
+class ModelRegistry(BaseModel):
+    generated_at: datetime
+    operational_version: str
+    rollback_target: str
+    entries: list[ModelRegistryEntry]
+    promotion_policy: list[str]

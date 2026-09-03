@@ -1,10 +1,13 @@
 import type {
   AnalyticsDashboard,
+  ClusteringSensitivityReport,
+  ClusteringSensitivityVariant,
   ClusteringDiagnostics,
   ClusterReview,
   ClusterReviewLabel,
   DashboardDataset,
   EventClass,
+  EventEvidenceGraph,
   FacilityMonitor,
   HistoryReadiness,
   IndiaBoundary,
@@ -13,6 +16,7 @@ import type {
   ModelBenchmarkEnvelope,
   ModelBenchmarkMetrics,
   ModelBenchmarkReport,
+  ModelRegistryEntry,
   ModelTrainingReadiness,
   PlaybackFrame,
   ReviewAlert,
@@ -403,6 +407,81 @@ type ApiModelBenchmarkEnvelope = {
   status: ModelBenchmarkEnvelope["status"];
   message: string;
   report: ApiModelBenchmarkReport | null;
+};
+
+type ApiEvidenceGraph = {
+  event_id: string;
+  cluster_id: string;
+  classification_node_id: string;
+  classification: string;
+  category: EventClass;
+  confidence: number;
+  model_version: string;
+  feature_version: string;
+  nodes: Array<{
+    node_id: string;
+    kind: EventEvidenceGraph["nodes"][number]["kind"];
+    label: string;
+    value: string;
+    source: string;
+    source_url: string | null;
+    direction: EventEvidenceGraph["nodes"][number]["direction"];
+  }>;
+  edges: Array<{
+    source_node_id: string;
+    target_node_id: string;
+    relation: EventEvidenceGraph["edges"][number]["relation"];
+  }>;
+  interpretation_boundary: string;
+};
+
+type ApiClusteringSensitivityVariant = {
+  epsilon_m: number;
+  min_samples: number;
+  is_operational_setting: boolean;
+  total_clusters: number;
+  multi_event_clusters: number;
+  largest_cluster_events: number;
+  core_events: number;
+  border_events: number;
+  noise_events: number;
+  noise_percent: number;
+  median_supported_radius_m: number;
+  p95_supported_radius_m: number;
+  maximum_supported_radius_m: number;
+  co_membership_jaccard_vs_operational: number;
+};
+
+type ApiClusteringSensitivityReport = {
+  event_count: number;
+  operational_epsilon_m: number;
+  operational_min_samples: number;
+  variants: ApiClusteringSensitivityVariant[];
+  methodology: string;
+  caveats: string[];
+};
+
+type ApiModelRegistryEntry = {
+  version: string;
+  family: string;
+  lifecycle: ModelRegistryEntry["lifecycle"];
+  serving: boolean;
+  label_provenance: string;
+  feature_version: string;
+  artifact_file: string | null;
+  artifact_sha256: string | null;
+  device: string;
+  metric_name: string | null;
+  metric_value: number | null;
+  promotion_status: string;
+  notes: string[];
+};
+
+type ApiModelRegistry = {
+  operational_version: string;
+  rollback_target: string;
+  entries: ApiModelRegistryEntry[];
+  promotion_policy: string[];
 };
 
 const confidenceLabel = (value: ApiEvidenceEvent["confidence"]) =>
@@ -832,6 +911,41 @@ const adaptModelReport = (report: ApiModelBenchmarkReport): ModelBenchmarkReport
   limitations: report.limitations,
 });
 
+const adaptModelRegistryEntry = (entry: ApiModelRegistryEntry): ModelRegistryEntry => ({
+  version: entry.version,
+  family: entry.family,
+  lifecycle: entry.lifecycle,
+  serving: entry.serving,
+  labelProvenance: entry.label_provenance,
+  featureVersion: entry.feature_version,
+  artifactFile: entry.artifact_file,
+  artifactSha256: entry.artifact_sha256,
+  device: entry.device,
+  metricName: entry.metric_name,
+  metricValue: entry.metric_value,
+  promotionStatus: entry.promotion_status,
+  notes: entry.notes,
+});
+
+const adaptSensitivityVariant = (
+  variant: ApiClusteringSensitivityVariant,
+): ClusteringSensitivityVariant => ({
+  epsilonM: variant.epsilon_m,
+  minSamples: variant.min_samples,
+  isOperationalSetting: variant.is_operational_setting,
+  totalClusters: variant.total_clusters,
+  multiEventClusters: variant.multi_event_clusters,
+  largestClusterEvents: variant.largest_cluster_events,
+  coreEvents: variant.core_events,
+  borderEvents: variant.border_events,
+  noiseEvents: variant.noise_events,
+  noisePercent: variant.noise_percent,
+  medianSupportedRadiusM: variant.median_supported_radius_m,
+  p95SupportedRadiusM: variant.p95_supported_radius_m,
+  maximumSupportedRadiusM: variant.maximum_supported_radius_m,
+  coMembershipJaccardVsOperational: variant.co_membership_jaccard_vs_operational,
+});
+
 export async function fetchOperationalEvents(signal?: AbortSignal): Promise<DashboardDataset> {
   const [
     eventResponse,
@@ -848,6 +962,7 @@ export async function fetchOperationalEvents(signal?: AbortSignal): Promise<Dash
     reviewsResponse,
     modelReadinessResponse,
     modelBenchmarkResponse,
+    modelRegistryResponse,
   ] = await Promise.all([
     fetch(`${API_BASE_URL}/events?min_frp=1&window_hours=24&limit=2000`, {
       signal,
@@ -875,6 +990,7 @@ export async function fetchOperationalEvents(signal?: AbortSignal): Promise<Dash
     fetch(`${API_BASE_URL}/validation/reviews`, { signal, cache: "no-store" }),
     fetch(`${API_BASE_URL}/models/readiness`, { signal, cache: "no-store" }),
     fetch(`${API_BASE_URL}/models/benchmark`, { signal, cache: "no-store" }),
+    fetch(`${API_BASE_URL}/models/registry`, { signal, cache: "no-store" }),
   ]);
   if (!eventResponse.ok) {
     throw new Error(`AegisFire API returned ${eventResponse.status}`);
@@ -918,6 +1034,9 @@ export async function fetchOperationalEvents(signal?: AbortSignal): Promise<Dash
     : null;
   const modelBenchmarkBody = modelBenchmarkResponse.ok
     ? ((await modelBenchmarkResponse.json()) as ApiModelBenchmarkEnvelope)
+    : null;
+  const modelRegistryBody = modelRegistryResponse.ok
+    ? ((await modelRegistryResponse.json()) as ApiModelRegistry)
     : null;
   const facilities: IndustrialFacility[] = facilityBody.facilities.map((facility) => ({
     id: facility.osm_id,
@@ -974,9 +1093,77 @@ export async function fetchOperationalEvents(signal?: AbortSignal): Promise<Dash
             : null,
         }
       : null,
+    modelRegistry: modelRegistryBody
+      ? {
+          operationalVersion: modelRegistryBody.operational_version,
+          rollbackTarget: modelRegistryBody.rollback_target,
+          entries: modelRegistryBody.entries.map(adaptModelRegistryEntry),
+          promotionPolicy: modelRegistryBody.promotion_policy,
+        }
+      : null,
     boundary: geographyBody
       ? { type: geographyBody.type, features: geographyBody.features }
       : null,
+  };
+}
+
+export async function fetchEventEvidenceGraph(
+  eventId: string,
+  signal?: AbortSignal,
+): Promise<EventEvidenceGraph> {
+  const response = await fetch(`${API_BASE_URL}/events/${eventId}/evidence-graph`, {
+    signal,
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error(`Evidence graph request failed with ${response.status}`);
+  }
+  const graph = (await response.json()) as ApiEvidenceGraph;
+  return {
+    eventId: graph.event_id,
+    clusterId: graph.cluster_id,
+    classificationNodeId: graph.classification_node_id,
+    classification: graph.classification,
+    category: graph.category,
+    confidence: graph.confidence,
+    modelVersion: graph.model_version,
+    featureVersion: graph.feature_version,
+    nodes: graph.nodes.map((node) => ({
+      nodeId: node.node_id,
+      kind: node.kind,
+      label: node.label,
+      value: node.value,
+      source: node.source,
+      sourceUrl: node.source_url,
+      direction: node.direction,
+    })),
+    edges: graph.edges.map((edge) => ({
+      sourceNodeId: edge.source_node_id,
+      targetNodeId: edge.target_node_id,
+      relation: edge.relation,
+    })),
+    interpretationBoundary: graph.interpretation_boundary,
+  };
+}
+
+export async function fetchClusteringSensitivity(
+  signal?: AbortSignal,
+): Promise<ClusteringSensitivityReport> {
+  const response = await fetch(`${API_BASE_URL}/clustering/sensitivity`, {
+    signal,
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error(`Clustering sensitivity request failed with ${response.status}`);
+  }
+  const report = (await response.json()) as ApiClusteringSensitivityReport;
+  return {
+    eventCount: report.event_count,
+    operationalEpsilonM: report.operational_epsilon_m,
+    operationalMinSamples: report.operational_min_samples,
+    variants: report.variants.map(adaptSensitivityVariant),
+    methodology: report.methodology,
+    caveats: report.caveats,
   };
 }
 

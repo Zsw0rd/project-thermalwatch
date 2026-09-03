@@ -10,6 +10,8 @@ from app.config import Settings, get_settings
 from app.schemas.events import (
     ClusterReviewRecord,
     ModelBenchmarkEnvelope,
+    ModelRegistry,
+    ModelRegistryEntry,
     ModelTrainingReadiness,
     NormalizedThermalEvent,
 )
@@ -310,4 +312,124 @@ def load_model_benchmark(
             else "Development-only weak-label agreement report; not a validation accuracy claim."
         ),
         report=payload,
+    )
+
+
+def model_registry(
+    events: list[NormalizedThermalEvent],
+    settings: Settings | None = None,
+) -> ModelRegistry:
+    settings = settings or get_settings()
+    readiness = model_training_readiness(events, settings)
+    benchmark = load_model_benchmark(settings)
+    report = benchmark.report or {}
+    artifacts = report.get("artifacts", [])
+    artifact_by_model = {
+        str(item.get("model")): item
+        for item in artifacts
+        if isinstance(item, dict) and item.get("model")
+    } if isinstance(artifacts, list) else {}
+    raw_candidates: list[object] = []
+    rules = report.get("rules_baseline")
+    if isinstance(rules, dict):
+        raw_candidates.append(rules)
+    candidates = report.get("candidate_models", [])
+    if isinstance(candidates, list):
+        raw_candidates.extend(candidates)
+
+    entries = [
+        ModelRegistryEntry(
+            version="rules_temporal_metric_v3",
+            family="Deterministic evidence rules",
+            lifecycle="operational",
+            serving=True,
+            label_provenance="engineering_rules",
+            feature_version=(
+                events[0].feature_version
+                if events
+                else "firms_osm_modis_igbp_india_adm0_metric_dbscan_v4"
+            ),
+            device="cpu",
+            promotion_status="current_operational",
+            notes=[
+                "Explainable evidence rules remain the only serving classifier.",
+                "Every prediction carries model and feature versions.",
+            ],
+        )
+    ]
+    display_names = {
+        "model_v1_rules_baseline": "Rules benchmark reference",
+        "model_v2_logistic": "Logistic regression",
+        "model_v3_random_forest": "Random forest",
+        "model_v4_xgboost": "XGBoost",
+    }
+    for raw_candidate in raw_candidates:
+        if not isinstance(raw_candidate, dict):
+            continue
+        version = str(raw_candidate.get("model", "unknown_candidate"))
+        artifact = artifact_by_model.get(version, {})
+        metrics = raw_candidate.get("metrics", {})
+        balanced_accuracy = (
+            metrics.get("balanced_accuracy")
+            if isinstance(metrics, dict)
+            else None
+        )
+        entries.append(
+            ModelRegistryEntry(
+                version=version,
+                family=display_names.get(version, version.replace("_", " ")),
+                lifecycle=(
+                    "evaluation_only"
+                    if version == "model_v1_rules_baseline"
+                    else "development_only"
+                ),
+                serving=False,
+                label_provenance=str(
+                    report.get("label_provenance", "benchmark_unavailable")
+                ),
+                feature_version=FEATURE_VERSION,
+                artifact_file=(
+                    str(artifact.get("file"))
+                    if isinstance(artifact, dict) and artifact.get("file")
+                    else None
+                ),
+                artifact_sha256=(
+                    str(artifact.get("sha256"))
+                    if isinstance(artifact, dict) and artifact.get("sha256")
+                    else None
+                ),
+                device=str(raw_candidate.get("device", "cpu")),
+                metric_name=(
+                    "balanced_weak_label_agreement"
+                    if benchmark.status == "development_only"
+                    else "balanced_accuracy"
+                ),
+                metric_value=(
+                    float(balanced_accuracy)
+                    if isinstance(balanced_accuracy, int | float)
+                    else None
+                ),
+                promotion_status=(
+                    "blocked_insufficient_reviewed_labels"
+                    if readiness.status == "blocked_insufficient_reviewed_labels"
+                    else "awaiting_acceptance_review"
+                ),
+                notes=[
+                    "Offline benchmark entry; it is not imported by operational inference.",
+                    benchmark.message,
+                ],
+            )
+        )
+    return ModelRegistry(
+        generated_at=datetime.now(UTC),
+        operational_version="rules_temporal_metric_v3",
+        rollback_target="rules_temporal_metric_v3",
+        entries=entries,
+        promotion_policy=[
+            "Pass the reviewed-label sample, per-class, and spatial-coverage gate.",
+            "Complete spatial and temporal holdouts with class-specific acceptance criteria.",
+            "Review calibration, failure modes, provenance, and artifact integrity.",
+            "Deploy first in shadow mode with rollback to rules_temporal_metric_v3.",
+            "Require an explicit human promotion decision; never auto-promote a benchmark winner.",
+        ],
     )

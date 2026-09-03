@@ -20,6 +20,8 @@ app/services/__init__.py
 app/services/alert_workflow.py
 app/services/boundary.py
 app/services/cluster_review.py
+app/services/clustering_sensitivity.py
+app/services/evidence_graph.py
 app/services/facility_monitor.py
 app/services/firms.py
 app/services/history_archive.py
@@ -32,6 +34,7 @@ app/services/temporal.py
 tests/test_api.py
 tests/test_boundary_and_archive.py
 tests/test_cluster_review.py
+tests/test_evaluation_extensions.py
 tests/test_firms_pipeline.py
 tests/test_model_pipeline.py
 tests/test_osm_context.py

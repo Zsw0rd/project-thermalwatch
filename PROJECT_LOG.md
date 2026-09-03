@@ -554,3 +554,45 @@ Advance the classification roadmap without inventing accuracy: create a reproduc
 - Two-degree grouped holdout blocks reduce direct spatial leakage but need sensitivity testing against finer/coarser groups, leave-region-out validation, temporal holdout, and facility-lineage grouping.
 - Class support is imbalanced (520 agricultural weak labels versus 27 unknown). Future reviewed sampling should be stratified by class, spatial block, sensor, season, persistence regime, and facility type.
 - Before any production model stage, add reviewer agreement/quality controls, calibration assessment, probability reliability plots, parameter sweeps, explicit acceptance thresholds, signed model registry metadata, rollback support, and monitored shadow inference.
+
+## 2026-09-03 — Explainable evidence graph, clustering sensitivity, and model registry stages
+
+### Objective
+
+Advance roadmap Phases 11, 20, and 21 without deploying an unvalidated classifier: make per-event reasoning inspectable, quantify how DBSCAN behavior changes across plausible parameters, and introduce a versioned registry/promotion boundary in both the API and primary web experience.
+
+### Files or areas touched
+
+- backend evidence-graph and clustering-sensitivity services;
+- model registry construction, API schemas/routes, package source metadata, and backend tests;
+- frontend types, API adapters, asynchronous evaluation loading, event evidence panel, Analytics sensitivity table, Models registry, governance export, and responsive styling;
+- README, research/reference glossary, and this living log.
+
+### Decisions and important implementation details
+
+- Added an attributed evidence graph for every operational event. FIRMS measurement, recurrence, metric grouping, OSM proximity/absence, and annual MODIS context become typed nodes linked to the candidate classification by `supports`, `contextualizes`, or `limits`; a mandatory boundary node explicitly rejects incident, source, ownership, and causation claims.
+- Kept explainability faithful to the serving rules model. SHAP was not added because no trained candidate is operational, so model-specific attribution would misrepresent the current decision path.
+- Added an eight-variant Haversine DBSCAN sweep across 500, 750, 1,000, and 1,500 m epsilon values at two- and three-observation minimum densities. Each row reports cluster/support/noise counts, core/border roles, supported radii, largest cluster, and pairwise co-membership Jaccard relative to the operational control.
+- Cached sensitivity results by the immutable observation tuple and loaded the report through a separate frontend request. The primary FIRMS map never waits for this evaluation workload and the sweep never mutates operational cluster membership.
+- Added a model registry with lifecycle, serving flag, label provenance, feature version, device, artifact filename/hash, metric scope, promotion state, rollback target, and a five-step promotion policy. Exactly one model—`rules_temporal_metric_v3`—is serving.
+- Kept the rules benchmark reference distinct from the serving rules engine. Logistic regression, random forest, and XGBoost remain non-serving development artifacts blocked by the reviewed-label gate.
+- Added a downloadable Markdown governance brief generated locally from the loaded registry/readiness state without introducing server-side secrets or external dependencies.
+
+### Verification performed and result
+
+- New backend service tests — three passed for attributed/connected/non-confirmatory evidence graphs, the operational sensitivity control invariant, and one-serving-model registry enforcement.
+- Full backend suite — 35 tests passed with one upstream Starlette/httpx deprecation warning.
+- Python lint — passed across application, tests, Alembic, and ML code.
+- Frontend lint — passed after removing the only unused type import; frontend production build passed strict TypeScript and static generation.
+- API smoke — eight sensitivity variants returned; the control co-membership score is 1.0; the selected event returned seven nodes/six edges; the registry returned five entries with only `rules_temporal_metric_v3` serving. The cached sensitivity request itself completed in approximately 351 ms after cold event loading.
+- Live browser Overview QA — the selected event rendered six attributed graph links, the rules confidence/version, and the explicit non-proof boundary.
+- Live browser Analytics QA — all eight DBSCAN variants rendered with the 750 m/two-sample control highlighted; values included 33.3% control noise and 97.8% co-membership for the 1,000 m/two-sample variant.
+- Live browser Models QA — the registry displayed one serving version, four non-serving evaluation/development entries, artifact digest prefixes, the rollback target, five promotion gates, and the governance export control.
+
+### Known limitations or next concrete task
+
+- Evidence-graph relationships explain deterministic application logic; they are not learned feature attributions, causal inference, or proof that a mapped context produced a thermal signal.
+- Co-membership similarity measures agreement with the current grouping, not correctness. Parameter selection remains blocked on reviewed source labels, longer temporal coverage, and region/season holdouts.
+- Artifact hashes are integrity identifiers in a local report, not signed provenance. Production registry storage needs immutable database records, signatures, authenticated approvals, and audit events.
+- Shadow inference is a documented promotion requirement but is not enabled because the available candidate models were trained on weak labels. Enabling it before reviewed evaluation would add operational complexity without reliable evidence.
+- The next safe stages are reviewer-quality metrics and agreement workflows, structured acceptance criteria, calibrated probability evaluation after real labels arrive, and long-window archive automation.

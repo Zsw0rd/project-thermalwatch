@@ -156,6 +156,83 @@ export type ModelBenchmarkEnvelope = {
   report: ModelBenchmarkReport | null;
 };
 
+export type EvidenceGraphNode = {
+  nodeId: string;
+  kind: "observation" | "temporal" | "spatial" | "context" | "classification" | "limitation";
+  label: string;
+  value: string;
+  source: string;
+  sourceUrl: string | null;
+  direction: "supports" | "limits" | "neutral";
+};
+
+export type EventEvidenceGraph = {
+  eventId: string;
+  clusterId: string;
+  classificationNodeId: string;
+  classification: string;
+  category: EventClass;
+  confidence: number;
+  modelVersion: string;
+  featureVersion: string;
+  nodes: EvidenceGraphNode[];
+  edges: Array<{
+    sourceNodeId: string;
+    targetNodeId: string;
+    relation: "supports" | "limits" | "contextualizes";
+  }>;
+  interpretationBoundary: string;
+};
+
+export type ClusteringSensitivityVariant = {
+  epsilonM: number;
+  minSamples: number;
+  isOperationalSetting: boolean;
+  totalClusters: number;
+  multiEventClusters: number;
+  largestClusterEvents: number;
+  coreEvents: number;
+  borderEvents: number;
+  noiseEvents: number;
+  noisePercent: number;
+  medianSupportedRadiusM: number;
+  p95SupportedRadiusM: number;
+  maximumSupportedRadiusM: number;
+  coMembershipJaccardVsOperational: number;
+};
+
+export type ClusteringSensitivityReport = {
+  eventCount: number;
+  operationalEpsilonM: number;
+  operationalMinSamples: number;
+  variants: ClusteringSensitivityVariant[];
+  methodology: string;
+  caveats: string[];
+};
+
+export type ModelRegistryEntry = {
+  version: string;
+  family: string;
+  lifecycle: "operational" | "development_only" | "evaluation_only";
+  serving: boolean;
+  labelProvenance: string;
+  featureVersion: string;
+  artifactFile: string | null;
+  artifactSha256: string | null;
+  device: string;
+  metricName: string | null;
+  metricValue: number | null;
+  promotionStatus: string;
+  notes: string[];
+};
+
+export type ModelRegistry = {
+  operationalVersion: string;
+  rollbackTarget: string;
+  entries: ModelRegistryEntry[];
+  promotionPolicy: string[];
+};
+
 export type ThermalEvent = {
   id: string;
   shortId: string;
@@ -225,6 +302,7 @@ export type DashboardDataset = {
   clusterReviews: ClusterReview[];
   modelReadiness: ModelTrainingReadiness | null;
   modelBenchmark: ModelBenchmarkEnvelope | null;
+  modelRegistry: ModelRegistry | null;
   boundary: IndiaBoundary | null;
 };
 

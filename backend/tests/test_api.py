@@ -195,6 +195,20 @@ def test_model_benchmark_endpoint_never_implies_automatic_deployment() -> None:
         assert payload["report"]["operational_model_unchanged"] == "rules_temporal_metric_v3"
 
 
+def test_explainability_sensitivity_and_registry_api_surfaces() -> None:
+    event_id = client.get("/api/v1/events?limit=1").json()["events"][0]["id"]
+    evidence_response = client.get(f"/api/v1/events/{event_id}/evidence-graph")
+    sensitivity_response = client.get("/api/v1/clustering/sensitivity")
+    registry_response = client.get("/api/v1/models/registry")
+
+    assert evidence_response.status_code == 200
+    assert evidence_response.json()["classification_node_id"] == "classification"
+    assert sensitivity_response.status_code == 200
+    assert len(sensitivity_response.json()["variants"]) == 8
+    assert registry_response.status_code == 200
+    assert sum(entry["serving"] for entry in registry_response.json()["entries"]) == 1
+
+
 def test_playback_frames_are_temporal_and_evidence_bounded() -> None:
     response = client.get("/api/v1/playback")
     assert response.status_code == 200

@@ -15,15 +15,18 @@ from app.schemas.events import (
     AnalyticsSummary,
     ArchiveResponse,
     ClusteringDiagnostics,
+    ClusteringSensitivityReport,
     ClusterReviewCollection,
     ClusterReviewRecord,
     ClusterReviewUpdate,
     ConfidenceLabel,
     EventCategory,
     EventCollection,
+    EventEvidenceGraph,
     HistoricalReadiness,
     LandCoverRefreshResponse,
     ModelBenchmarkEnvelope,
+    ModelRegistry,
     ModelTrainingReadiness,
     NormalizedThermalEvent,
     PersistenceResponse,
@@ -48,6 +51,8 @@ from app.services.cluster_review import (
     cluster_review_collection,
     create_cluster_review,
 )
+from app.services.clustering_sensitivity import clustering_sensitivity_report
+from app.services.evidence_graph import build_event_evidence_graph
 from app.services.facility_monitor import build_facility_monitors, facility_monitor_collection
 from app.services.firms import (
     alert_previews,
@@ -71,7 +76,11 @@ from app.services.land_cover import (
 from app.services.land_cover import (
     TILE_TEMPLATE as LAND_COVER_TILE_TEMPLATE,
 )
-from app.services.model_pipeline import load_model_benchmark, model_training_readiness
+from app.services.model_pipeline import (
+    load_model_benchmark,
+    model_registry,
+    model_training_readiness,
+)
 from app.services.osm import load_facilities, refresh_facilities
 from app.services.persistence import persist_current_snapshot
 from app.services.temporal import (
@@ -186,6 +195,18 @@ async def get_event(event_id: str) -> NormalizedThermalEvent:
     return event
 
 
+@router.get(
+    "/events/{event_id}/evidence-graph",
+    response_model=EventEvidenceGraph,
+    tags=["thermal events"],
+)
+async def event_evidence_graph(event_id: str) -> EventEvidenceGraph:
+    event = next((item for item in load_events() if item.id == event_id), None)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Thermal event not found")
+    return build_event_evidence_graph(event)
+
+
 @router.get("/events.geojson", tags=["thermal events"])
 async def events_geojson(
     min_frp: Annotated[float, Query(ge=0)] = 0,
@@ -253,6 +274,15 @@ async def spatial_clustering_diagnostics() -> ClusteringDiagnostics:
 
 
 @router.get(
+    "/clustering/sensitivity",
+    response_model=ClusteringSensitivityReport,
+    tags=["analytics"],
+)
+async def spatial_clustering_sensitivity() -> ClusteringSensitivityReport:
+    return await run_in_threadpool(clustering_sensitivity_report, load_events())
+
+
+@router.get(
     "/models/readiness",
     response_model=ModelTrainingReadiness,
     tags=["models"],
@@ -268,6 +298,15 @@ async def training_readiness() -> ModelTrainingReadiness:
 )
 async def model_benchmark() -> ModelBenchmarkEnvelope:
     return load_model_benchmark()
+
+
+@router.get(
+    "/models/registry",
+    response_model=ModelRegistry,
+    tags=["models"],
+)
+async def registered_models() -> ModelRegistry:
+    return model_registry(load_events())
 
 
 @router.get("/playback", response_model=PlaybackCollection, tags=["analytics"])
