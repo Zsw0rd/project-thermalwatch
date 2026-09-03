@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     model_min_reviewed_samples: int = 60
     model_min_samples_per_class: int = 10
     model_min_spatial_groups_per_class: int = 3
+    firms_refresh_interval_minutes: int = 360
+    ingestion_audit_file: Path = Path("data/cache/ingestion_run_audit.json")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

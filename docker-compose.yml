@@ -26,6 +26,7 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://aegisfire:aegisfire@db:5432/aegisfire}
       API_CORS_ORIGINS: ${API_CORS_ORIGINS:-["http://localhost:3000"]}
       FIRMS_MAP_KEY: ${FIRMS_MAP_KEY:-}
+      FIRMS_REFRESH_INTERVAL_MINUTES: ${FIRMS_REFRESH_INTERVAL_MINUTES:-360}
     ports:
       - "8000:8000"
     volumes:
@@ -34,6 +35,25 @@ services:
     depends_on:
       db:
         condition: service_healthy
+
+  ingestion-scheduler:
+    profiles: ["live-ingestion"]
+    build:
+      context: ./backend
+    command: ["python", "-m", "app.jobs.firms_refresh", "--loop"]
+    restart: unless-stopped
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      DEMO_MODE: ${DEMO_MODE:-true}
+      FIRMS_MAP_KEY: ${FIRMS_MAP_KEY:-}
+      FIRMS_SOURCE: ${FIRMS_SOURCE:-VIIRS_NOAA20_NRT}
+      FIRMS_DAY_RANGE: ${FIRMS_DAY_RANGE:-1}
+      FIRMS_REQUEST_TIMEOUT_SECONDS: ${FIRMS_REQUEST_TIMEOUT_SECONDS:-30}
+      FIRMS_REFRESH_INTERVAL_MINUTES: ${FIRMS_REFRESH_INTERVAL_MINUTES:-360}
+      INGESTION_AUDIT_FILE: ${INGESTION_AUDIT_FILE:-data/cache/ingestion_run_audit.json}
+    volumes:
+      - ./backend/data/cache:/app/data/cache
+      - ./backend/data/archive:/app/data/archive
 
   web:
     build:

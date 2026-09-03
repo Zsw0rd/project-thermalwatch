@@ -528,3 +528,101 @@ class ModelRegistry(BaseModel):
     rollback_target: str
     entries: list[ModelRegistryEntry]
     promotion_policy: list[str]
+
+
+class ThermalSourceFingerprint(BaseModel):
+    fingerprint_id: str
+    cluster_id: str
+    representative_event_id: str
+    centroid_latitude: float = Field(ge=-90, le=90)
+    centroid_longitude: float = Field(ge=-180, le=180)
+    category: EventCategory
+    classification: str
+    source_context: Literal["mapped_industrial", "land_cover_context", "unresolved"]
+    detection_count: int = Field(ge=1)
+    sensor_count: int = Field(ge=1)
+    active_days: int = Field(ge=1)
+    observation_window_days: int = Field(ge=1)
+    observation_dates: list[str]
+    mean_gap_days: float | None = Field(default=None, ge=0)
+    typical_utc_hours: list[int]
+    day_detection_ratio: float = Field(ge=0, le=1)
+    night_detection_ratio: float = Field(ge=0, le=1)
+    median_frp_mw: float = Field(ge=0)
+    p90_frp_mw: float = Field(ge=0)
+    maximum_frp_mw: float = Field(ge=0)
+    frp_mad_mw: float = Field(ge=0)
+    spatial_radius_m: float = Field(ge=0)
+    spatial_stability: float = Field(ge=0, le=1)
+    recurrence_score: float = Field(ge=0, le=1)
+    profile_completeness: float = Field(ge=0, le=1)
+    baseline_maturity: Literal[
+        "snapshot_only",
+        "short_window",
+        "thirty_day_candidate",
+        "seasonal_candidate",
+    ]
+    nearest_facility_name: str | None = None
+    nearest_facility_distance_m: float | None = Field(default=None, ge=0)
+    land_cover_label: str | None = None
+    discovery_priority: float = Field(ge=0, le=1)
+    discovery_status: Literal[
+        "priority_unknown",
+        "watch_unknown",
+        "contextualized_source",
+    ]
+    evidence: list[str]
+    limitation: str
+
+
+class ThermalSourceFingerprintCollection(BaseModel):
+    generated_at: datetime
+    total: int = Field(ge=0)
+    returned: int = Field(ge=0)
+    feature_version: str
+    methodology: str
+    fingerprints: list[ThermalSourceFingerprint]
+
+
+class IngestionRunRecord(BaseModel):
+    run_id: str
+    trigger: Literal["manual_api", "scheduler", "archive_only"]
+    status: Literal["succeeded", "failed"]
+    started_at: datetime
+    finished_at: datetime
+    source_mode: Literal["authenticated_area_api", "public_firms_feeds", "local_archive"]
+    files: list[str]
+    archived_files: list[str]
+    normalized_events: int = Field(ge=0)
+    error_type: str | None = None
+
+
+class IngestionRunCollection(BaseModel):
+    generated_at: datetime
+    total: int = Field(ge=0)
+    runs: list[IngestionRunRecord]
+
+
+class SourceFileHealth(BaseModel):
+    name: str
+    origin: Literal["cache", "bundled"]
+    bytes: int = Field(ge=0)
+    modified_at: datetime
+    age_hours: float = Field(ge=0)
+    status: Literal["fresh", "stale", "bundled_snapshot"]
+
+
+class OperationalHealth(BaseModel):
+    generated_at: datetime
+    status: Literal["healthy", "demo_ready", "attention"]
+    data_mode: Literal["live", "snapshot"]
+    normalized_events: int = Field(ge=0)
+    latest_observation_at: datetime | None
+    observation_lag_hours: float | None = Field(default=None, ge=0)
+    source_files: list[SourceFileHealth]
+    observed_calendar_days: int = Field(ge=0)
+    archive_snapshot_files: int = Field(ge=0)
+    last_ingestion_run: IngestionRunRecord | None
+    refresh_interval_minutes: int = Field(ge=1)
+    scheduler_command: str
+    issues: list[str]

@@ -13,6 +13,7 @@ import {
   Database,
   Flame,
   Factory,
+  Fingerprint,
   Focus,
   Gauge,
   Grid3X3,
@@ -48,7 +49,10 @@ import {
   createClusterReview,
   fetchClusteringSensitivity,
   fetchEventEvidenceGraph,
+  fetchIngestionRuns,
+  fetchOperationalHealth,
   fetchOperationalEvents,
+  fetchUnknownDiscoveries,
   updateAlertReview,
 } from "@/lib/api";
 import type {
@@ -64,13 +68,16 @@ import type {
   HistoryReadiness,
   IndiaBoundary,
   IndustrialFacility,
+  IngestionRun,
   ModelBenchmarkEnvelope,
   ModelRegistry,
   ModelTrainingReadiness,
+  OperationalHealth,
   PlaybackFrame,
   ReviewAlert,
   ThermalClusterSummary,
   ThermalEvent,
+  ThermalSourceFingerprint,
 } from "@/lib/types";
 import { ThermalMap } from "./thermal-map";
 
@@ -81,6 +88,7 @@ const NAV_ITEMS: { label: string; icon: LucideIcon }[] = [
   { label: "Events", icon: Flame },
   { label: "Monitor", icon: Factory },
   { label: "Playback", icon: Play },
+  { label: "Discover", icon: Fingerprint },
   { label: "Sources", icon: Target },
   { label: "Analytics", icon: Activity },
   { label: "Validate", icon: CheckCircle2 },
@@ -562,7 +570,147 @@ function PlaybackWorkspace({
   );
 }
 
-function SourcesWorkspace({ dataset }: { dataset: DashboardDataset | null }) {
+function DiscoveryWorkspace({
+  fingerprints,
+  events,
+  facilities,
+  boundary,
+}: {
+  fingerprints: ThermalSourceFingerprint[];
+  events: ThermalEvent[];
+  facilities: IndustrialFacility[];
+  boundary: IndiaBoundary | null;
+}) {
+  const [selectedClusterId, setSelectedClusterId] = useState("");
+  const [focusNonce, setFocusNonce] = useState(0);
+  const selected = fingerprints.find((item) => item.clusterId === selectedClusterId) ?? fingerprints[0];
+  const representativeIds = useMemo(
+    () => new Set(fingerprints.map((item) => item.representativeEventId)),
+    [fingerprints],
+  );
+  const mapEvents = useMemo(() => {
+    if (!selected) return [];
+    return events.filter(
+      (event) => event.clusterId === selected.clusterId || representativeIds.has(event.id),
+    );
+  }, [events, representativeIds, selected]);
+  const selectFingerprint = (clusterId: string) => {
+    setSelectedClusterId(clusterId);
+    setFocusNonce((current) => current + 1);
+  };
+
+  if (!selected) {
+    return <section className="stage-workspace grid place-items-center text-sm text-slate-500">Unknown-source fingerprints are loading or unavailable.</section>;
+  }
+
+  const bands = [
+    ["Recurrence", selected.recurrenceScore],
+    ["Spatial stability", selected.spatialStability],
+    ["Profile completeness", selected.profileCompleteness],
+    ["Night share", selected.nightDetectionRatio],
+    ["FRP intensity", Math.min(1, selected.p90Frp / 50)],
+  ] as const;
+
+  return (
+    <section className="stage-workspace discovery-workspace">
+      <div className="stage-header">
+        <div><p className="eyebrow">Persistent-source intelligence</p><h2>Unknown-source discovery</h2></div>
+        <span className="stage-badge">{fingerprints.length} unresolved candidates</span>
+      </div>
+
+      <div className="discovery-metrics">
+        <div><span>Priority unknowns</span><strong>{fingerprints.filter((item) => item.discoveryStatus === "priority_unknown").length}</strong></div>
+        <div><span>Most recurrent</span><strong>{Math.max(...fingerprints.map((item) => item.activeDays))}/{selected.observationWindowDays}d</strong></div>
+        <div><span>Multi-sensor</span><strong>{fingerprints.filter((item) => item.sensorCount > 1).length}</strong></div>
+        <div><span>Profile version</span><strong className="text-xs">thermal v1</strong></div>
+      </div>
+
+      <div className="discovery-grid">
+        <aside className="discovery-queue custom-scrollbar">
+          <div className="discovery-queue-head"><span>Ranked review queue</span><small>score, not identity</small></div>
+          {fingerprints.map((item, index) => (
+            <button
+              type="button"
+              key={item.fingerprintId}
+              className={item.clusterId === selected.clusterId ? "is-active" : ""}
+              onClick={() => selectFingerprint(item.clusterId)}
+            >
+              <b>{String(index + 1).padStart(2, "0")}</b>
+              <span><strong>{item.clusterId}</strong><small>{item.activeDays} {item.activeDays === 1 ? "day" : "days"} · {item.detectionCount} {item.detectionCount === 1 ? "detection" : "detections"}</small></span>
+              <i>{Math.round(item.discoveryPriority * 100)}</i>
+            </button>
+          ))}
+        </aside>
+
+        <div className="discovery-map-shell">
+          <div className="discovery-map-toolbar">
+            <span><MapIcon size={13} /> Candidate geometry</span>
+            <span><Grid3X3 size={12} /> Metric grid</span>
+            <span><Satellite size={12} /> Satellite</span>
+          </div>
+          <div className="discovery-map">
+            <ThermalMap
+              events={mapEvents}
+              selectedId={selected.representativeEventId}
+              onSelect={(eventId) => {
+                const event = events.find((item) => item.id === eventId);
+                if (event?.clusterId) selectFingerprint(event.clusterId);
+              }}
+              facilities={facilities}
+              showGrid
+              showSatellite
+              showLandCover
+              focusNonce={focusNonce}
+              boundary={boundary}
+            />
+          </div>
+          <div className="discovery-map-foot">
+            <span>{selected.coordinates[1].toFixed(4)}, {selected.coordinates[0].toFixed(4)}</span>
+            <span>{selected.spatialRadiusM.toFixed(0)} m observed radius</span>
+            <span>{selected.landCoverLabel ?? "Land-cover context unavailable"}</span>
+          </div>
+        </div>
+
+        <aside className="fingerprint-panel custom-scrollbar">
+          <div className="fingerprint-title">
+            <div><p className="eyebrow">{selected.discoveryStatus.replaceAll("_", " ")}</p><h3>{selected.fingerprintId}</h3></div>
+            <strong>{Math.round(selected.discoveryPriority * 100)}</strong>
+          </div>
+          <p className="fingerprint-class">{selected.classification}</p>
+          <div className="fingerprint-facts">
+            <div><span>Active days</span><b>{selected.activeDays}/{selected.observationWindowDays}</b></div>
+            <div><span>Detections</span><b>{selected.detectionCount}</b></div>
+            <div><span>Median / P90</span><b>{selected.medianFrp.toFixed(1)} / {selected.p90Frp.toFixed(1)} MW</b></div>
+            <div><span>Typical UTC</span><b>{selected.typicalUtcHours.map((hour) => `${String(hour).padStart(2, "0")}:00`).join(" · ")}</b></div>
+          </div>
+          <div className="fingerprint-bands">
+            {bands.map(([label, value]) => (
+              <div key={label}><span>{label}</span><i><b style={{ width: `${Math.round(value * 100)}%` }} /></i><strong>{Math.round(value * 100)}</strong></div>
+            ))}
+          </div>
+          <div className="fingerprint-dates">
+            <span>Observed UTC dates</span>
+            <div>{selected.observationDates.map((date) => <b key={date}>{date.slice(5)}</b>)}</div>
+          </div>
+          <div className="fingerprint-evidence">
+            {selected.evidence.map((item) => <p key={item}><CircleDot size={9} /> {item}</p>)}
+          </div>
+          <p className="fingerprint-limit"><ShieldCheck size={12} /> {selected.limitation}</p>
+        </aside>
+      </div>
+    </section>
+  );
+}
+
+function SourcesWorkspace({
+  dataset,
+  health,
+  ingestionRuns,
+}: {
+  dataset: DashboardDataset | null;
+  health: OperationalHealth | null;
+  ingestionRuns: IngestionRun[];
+}) {
   const cards = [
     {
       title: "NASA FIRMS / VIIRS",
@@ -607,6 +755,7 @@ function SourcesWorkspace({ dataset }: { dataset: DashboardDataset | null }) {
       source: "geoBoundaries gbOpen · 2014 representation · CC0 1.0",
     },
   ];
+  const healthLabel = health?.status.replaceAll("_", " ") ?? "telemetry unavailable";
   return (
     <section className="stage-workspace">
       <div className="stage-header">
@@ -626,6 +775,45 @@ function SourcesWorkspace({ dataset }: { dataset: DashboardDataset | null }) {
           </article>
         ))}
       </div>
+      {health && (
+        <section className="operations-panel">
+          <div className="operations-summary">
+            <div>
+              <p className="eyebrow">Ingestion control plane</p>
+              <h3>Operational health</h3>
+              <span className={`operations-status is-${health.status}`}><CircleDot size={10} /> {healthLabel}</span>
+            </div>
+            <div><span>Normalized events</span><strong>{health.normalizedEvents.toLocaleString("en-IN")}</strong></div>
+            <div><span>Observation lag</span><strong>{health.observationLagHours === null ? "—" : `${health.observationLagHours.toFixed(1)} h`}</strong></div>
+            <div><span>Refresh cadence</span><strong>{health.refreshIntervalMinutes / 60} h</strong></div>
+            <div><span>Archived files</span><strong>{health.archiveSnapshotFiles}</strong></div>
+          </div>
+          <div className="operations-grid">
+            <div className="source-health-table">
+              <div className="operations-subhead"><span>Raw source files</span><small>freshness and origin</small></div>
+              {health.sourceFiles.map((file) => (
+                <div key={`${file.origin}-${file.name}`}>
+                  <span><strong>{file.name}</strong><small>{(file.bytes / 1024).toFixed(1)} KiB · {file.origin}</small></span>
+                  <span className={`file-health is-${file.status}`}>{file.status.replaceAll("_", " ")}</span>
+                  <time>{file.ageHours.toFixed(1)} h old</time>
+                </div>
+              ))}
+            </div>
+            <div className="ingestion-run-list">
+              <div className="operations-subhead"><span>Recent ingestion runs</span><small>append-only local audit</small></div>
+              {ingestionRuns.length ? ingestionRuns.map((run) => (
+                <div key={run.runId}>
+                  <CircleDot size={10} className={run.status === "succeeded" ? "text-emerald-300" : "text-red-300"} />
+                  <span><strong>{run.trigger.replaceAll("_", " ")}</strong><small>{new Date(run.finishedAt).toLocaleString("en-IN")} · {run.sourceMode.replaceAll("_", " ")}</small></span>
+                  <b>{run.normalizedEvents.toLocaleString("en-IN")}</b>
+                </div>
+              )) : <p>No completed ingestion run is recorded yet. Bundled evidence remains deterministic.</p>}
+              <code>{health.schedulerCommand}</code>
+            </div>
+          </div>
+          {health.issues.length > 0 && <div className="operations-issues">{health.issues.map((issue) => <p key={issue}><AlertTriangle size={11} /> {issue}</p>)}</div>}
+        </section>
+      )}
       <div className="limitations-panel">
         <p className="eyebrow">Current evidence boundaries</p>
         {(dataset?.limitations ?? ["Operational API unavailable; deterministic simulation remains active."]).map((item) => (
@@ -1171,10 +1359,14 @@ export function CommandCenter() {
   const [selectedId, setSelectedId] = useState(DEMO_EVENTS[0].id);
   const [query, setQuery] = useState("");
   const [nav, setNav] = useState("Overview");
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [mobileIntelOpen, setMobileIntelOpen] = useState(false);
   const [operationalDataset, setOperationalDataset] = useState<DashboardDataset | null>(null);
   const [evidenceGraph, setEvidenceGraph] = useState<EventEvidenceGraph | null>(null);
   const [clusteringSensitivity, setClusteringSensitivity] = useState<ClusteringSensitivityReport | null>(null);
+  const [unknownFingerprints, setUnknownFingerprints] = useState<ThermalSourceFingerprint[]>([]);
+  const [operationalHealth, setOperationalHealth] = useState<OperationalHealth | null>(null);
+  const [ingestionRuns, setIngestionRuns] = useState<IngestionRun[]>([]);
   const [dataView, setDataView] = useState<"operational" | "simulation">("simulation");
   const [apiStatus, setApiStatus] = useState<"loading" | "ready" | "unavailable">("loading");
   const [showFacilities, setShowFacilities] = useState(true);
@@ -1211,6 +1403,27 @@ export function CommandCenter() {
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === "AbortError") return;
         setClusteringSensitivity(null);
+      });
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    Promise.all([
+      fetchUnknownDiscoveries(controller.signal),
+      fetchOperationalHealth(controller.signal),
+      fetchIngestionRuns(controller.signal),
+    ])
+      .then(([discoveries, health, runs]) => {
+        setUnknownFingerprints(discoveries.fingerprints);
+        setOperationalHealth(health);
+        setIngestionRuns(runs);
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setUnknownFingerprints([]);
+        setOperationalHealth(null);
+        setIngestionRuns([]);
       });
     return () => controller.abort();
   }, []);
@@ -1302,6 +1515,7 @@ export function CommandCenter() {
     Events: ["Evidence-led triage", "Alert and event review", "Prioritized candidates · reason codes · human validation"],
     Monitor: ["Facility-centric intelligence", "Industrial facility monitor", "Attributed observations · temporal status · operational context"],
     Playback: ["Historical reconstruction", "Thermal activity playback", "Daily frames · newly observed cells · cumulative recurrence"],
+    Discover: ["Persistent-source intelligence", "Unknown-source discovery", "Thermal fingerprints · ranked candidates · explicit uncertainty"],
     Sources: ["Provenance control", "Evidence source registry", "Readiness · attribution · known boundaries"],
     Analytics: ["Temporal analysis", "Persistence and anomaly workspace", "Observed recurrence · robust deviation · candidate ranking"],
     Validate: ["Human-in-the-loop review", "Cluster validation workspace", "Satellite context · metric diagnostics · append-only analyst labels"],
@@ -1379,10 +1593,29 @@ export function CommandCenter() {
             <Bell size={15} />
             <i className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-orange-400" />
           </button>
-          <button type="button" className="icon-button lg:hidden" aria-label="Open navigation"><Menu size={16} /></button>
+          <button type="button" className="icon-button lg:hidden" aria-label="Open navigation" aria-expanded={mobileNavOpen} onClick={() => setMobileNavOpen((current) => !current)}><Menu size={16} /></button>
           <div className="grid h-8 w-8 place-items-center rounded-sm border border-white/10 bg-[#111b24] text-[10px] font-bold text-slate-300">TA</div>
         </div>
       </header>
+
+      {mobileNavOpen && (
+        <div className="mobile-nav-backdrop lg:hidden" onClick={() => setMobileNavOpen(false)}>
+          <nav className="mobile-nav-panel" aria-label="Mobile navigation" onClick={(event) => event.stopPropagation()}>
+            {NAV_ITEMS.map((item) => (
+              <button
+                key={item.label}
+                type="button"
+                className={nav === item.label ? "is-active" : ""}
+                onClick={() => { setNav(item.label); setMobileNavOpen(false); }}
+              >
+                <item.icon size={14} />
+                <span>{item.label}</span>
+                <ChevronRight size={12} />
+              </button>
+            ))}
+          </nav>
+        </div>
+      )}
 
       <section className="mx-auto max-w-[1800px] px-3 pb-5 pt-4 sm:px-5 lg:px-6">
         <div className="mb-3 flex flex-col justify-between gap-3 lg:flex-row lg:items-end">
@@ -1488,7 +1721,21 @@ export function CommandCenter() {
             boundary={operationalDataset?.boundary ?? null}
           />
         )}
-        {nav === "Sources" && <SourcesWorkspace dataset={operationalDataset} />}
+        {nav === "Discover" && (
+          <DiscoveryWorkspace
+            fingerprints={unknownFingerprints}
+            events={operationalDataset?.historicalEvents ?? []}
+            facilities={operationalDataset?.facilities ?? []}
+            boundary={operationalDataset?.boundary ?? null}
+          />
+        )}
+        {nav === "Sources" && (
+          <SourcesWorkspace
+            dataset={operationalDataset}
+            health={operationalHealth}
+            ingestionRuns={ingestionRuns}
+          />
+        )}
         {nav === "Analytics" && (
           <AnalyticsWorkspace
             analytics={operationalDataset?.analytics ?? null}

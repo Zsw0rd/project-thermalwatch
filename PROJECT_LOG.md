@@ -4,7 +4,7 @@ This is the durable implementation record for AegisFire. It must be updated when
 
 ## Current status
 
-- **Stage:** Operational snapshot MVP with NASA FIRMS + OSM + MODIS IGBP context; long-term baselines and measured evaluation pending
+- **Stage:** Operational ingestion telemetry and observed-window source discovery implemented; long-term baselines and reviewed evaluation pending
 - **Primary deliverable:** Explainable geospatial intelligence web dashboard
 - **Data mode:** API-first attributed source snapshots with automatic deterministic simulation fallback
 - **Architecture:** Next.js web client, FastAPI service, PostgreSQL/PostGIS, Python geospatial and tabular ML pipeline
@@ -596,3 +596,49 @@ Advance roadmap Phases 11, 20, and 21 without deploying an unvalidated classifie
 - Artifact hashes are integrity identifiers in a local report, not signed provenance. Production registry storage needs immutable database records, signatures, authenticated approvals, and audit events.
 - Shadow inference is a documented promotion requirement but is not enabled because the available candidate models were trained on weak labels. Enabling it before reviewed evaluation would add operational complexity without reliable evidence.
 - The next safe stages are reviewer-quality metrics and agreement workflows, structured acceptance criteria, calibrated probability evaluation after real labels arrive, and long-window archive automation.
+
+## 2026-09-03 — Operational ingestion health and unknown-source fingerprints
+
+### Objective
+
+Advance two immediately buildable roadmap stages together: make recurring FIRMS ingestion observable and schedulable, then turn retained multi-day evidence into stable, explainable thermal-source fingerprints and a web-first unresolved-source discovery queue.
+
+### Files or areas touched
+
+- backend settings, operational/fingerprint schemas, API routes, package metadata, and tests;
+- new ingestion-operations service and one-shot/looping FIRMS scheduler job;
+- new thermal-source fingerprint and unknown-discovery service;
+- Docker Compose live-ingestion profile and environment template;
+- frontend domain types, API adapters, Discover workspace, Sources operational-health panel, complete mobile navigation, and responsive styling;
+- README, research/reference glossary, and this living log.
+
+### Decisions and important implementation details
+
+- Added an opt-in scheduler entry point, `python -m app.jobs.firms_refresh --loop`, with a configurable six-hour default interval. Each cycle continues to use the existing authenticated Area API path when a MAP_KEY exists and the attributed official public feeds otherwise.
+- Wrapped manual and scheduled refreshes in a shared audit boundary. Successes record input/cache paths, immutable archive outputs, normalized count, trigger, source mode, and UTC start/finish; failures record the exception type but never credentials or raw exception messages.
+- Kept the local audit deterministic and inspectable as JSON while adding both a thread lock and an exclusive lock file so API and scheduler processes on one host cannot overwrite each other's append operations. This is still a local MVP store, not a distributed production ledger.
+- Added `/operations/health` and `/operations/ingestion-runs`. Health reports raw-file origin/freshness, latest-observation lag, 30/90-day evidence readiness, archive count, cadence, last run, and actionable issues. Bundled evidence without a recorded refresh is explicitly `demo_ready`, not falsely `healthy`.
+- Added a deterministic `thermal_source_fingerprint_v1` for every analytical cluster. The profile preserves FRP median/P90/maximum/MAD, typical UTC hours, day/night share, active dates and gaps, sensor support, spatial radius/stability, recurrence, maturity, facility proximity, annual land cover, evidence sentences, and a stable content-derived fingerprint ID.
+- Added `/source-fingerprints` plus the focused `/discoveries/unknown` queue. Unknown-source priority combines recurrence, active-day coverage, sensor corroboration, spatial stability, and bounded maximum FRP. The 0.65 priority threshold is an engineering triage assumption; every response states that the score is not source identity or incident confirmation.
+- Added a Palantir-inspired Discover workspace with a ranked queue, attributed satellite and MODIS context, metric grid, exact candidate geometry, fingerprint bands, observed-date strip, evidence packet, and explicit interpretation boundary. Sources now exposes the ingestion control plane and recent audit history.
+- Fixed the nine-workspace desktop navigation so tabs do not collide with the source-state control, and added an actual mobile navigation panel so Discover, Sources, Analytics, Validate, and Models remain reachable at small widths.
+- Did not run another GPU training cycle. These stages are deterministic data operations and evidence profiling; the reviewed-label gate remains closed, so GPU training would not add validated capability.
+
+### Verification performed and result
+
+- Python lint across application, tests, Alembic, and ML code — passed.
+- Backend suite — 41 tests passed, including lock cleanup, append ordering, audited refresh success, sanitized failure recording, operational-health boundaries, stable fingerprint IDs, ranked unknowns, and all new API contracts. One upstream Starlette/httpx deprecation warning remains.
+- ML regression suite — two tests passed from the repository root.
+- Frontend lint — passed; production build passed strict TypeScript compilation and Next.js static generation.
+- Docker Compose base configuration and the `live-ingestion` profile both validated successfully.
+- API smoke — `demo_ready`, 1,566 normalized detections, eight observed UTC dates, six bundled source files, 27 unresolved candidates, and one priority candidate. The top candidate is `TS-38F2AAAE6C` at priority 0.694 with six active dates and 21 detections.
+- Live desktop browser QA — Discover rendered the 27-candidate queue, satellite imagery, metric grid, visible thermal symbols, top fingerprint metrics/evidence, and priority/non-confirmation labels. Sources rendered six file-health rows, 27.4-hour observation lag at test time, six-hour cadence, archive telemetry, and the honest no-recorded-run state.
+- Live 390 px browser QA — the full mobile navigation opened, Discover was reachable, its map rendered, and document width remained within the viewport with no horizontal overflow. The viewport was reset after testing.
+
+### Known limitations or next concrete task
+
+- The current fingerprint summarizes only eight observed UTC dates. Its `short_window` maturity cannot support seasonal behavior, long-term normal-operation claims, or source identity; daily scheduled ingestion must accumulate at least 30/90 observed dates.
+- Discovery priority is a transparent review heuristic, not a calibrated probability. The 0.65 queue threshold and component weights need evaluation against independently reviewed source examples.
+- The scheduler profile and contracts were validated, but no live recurring process was left running and no network refresh was forced during this deterministic work session. Deployment must provide the desired cadence, retention, monitoring, and a secret-managed MAP_KEY when authenticated Area API access is required.
+- JSON audit locking coordinates local API/scheduler processes only. Production should persist ingestion runs, source checksums, lineage, retries, and authenticated operator actions in PostgreSQL/PostGIS or another transactional store.
+- The next safe stages are reviewer agreement/quality metrics, production PostGIS lineage and cluster reconciliation, structured release acceptance tests, and calibrated/temporal evaluation only after sufficient reviewed labels and history exist.

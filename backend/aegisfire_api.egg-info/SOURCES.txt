@@ -13,6 +13,8 @@ app/db/__init__.py
 app/db/base.py
 app/db/models.py
 app/db/session.py
+app/jobs/__init__.py
+app/jobs/firms_refresh.py
 app/schemas/__init__.py
 app/schemas/events.py
 app/schemas/facilities.py
@@ -25,11 +27,13 @@ app/services/evidence_graph.py
 app/services/facility_monitor.py
 app/services/firms.py
 app/services/history_archive.py
+app/services/ingestion_operations.py
 app/services/land_cover.py
 app/services/model_pipeline.py
 app/services/osm.py
 app/services/persistence.py
 app/services/spatial_clustering.py
+app/services/source_fingerprint.py
 app/services/temporal.py
 tests/test_api.py
 tests/test_boundary_and_archive.py
@@ -37,5 +41,6 @@ tests/test_cluster_review.py
 tests/test_evaluation_extensions.py
 tests/test_firms_pipeline.py
 tests/test_model_pipeline.py
+tests/test_operations_and_discovery.py
 tests/test_osm_context.py
 tests/test_spatial_clustering.py

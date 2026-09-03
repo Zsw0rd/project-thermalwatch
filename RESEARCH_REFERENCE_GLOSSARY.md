@@ -431,3 +431,46 @@ Running a candidate alongside the operational model without allowing it to drive
 ### Rollback target
 
 The known operational version to which inference can return if a promoted model fails acceptance or monitoring criteria. AegisFire currently records the deterministic rules model as that target.
+
+## 2026-09-03 — Ingestion operations and source-discovery assumptions
+
+### Verified implementation observations
+
+- The retained deterministic evidence currently contains 1,566 deduplicated India-contained observations across eight UTC acquisition dates and 777 metric clusters. The operational-health surface sees six bundled FIRMS CSV files and reports `demo_ready` until a refresh run is recorded.
+- Twenty-seven current clusters have an unresolved application category. The highest-ranked unresolved cluster, `TS-38F2AAAE6C`, has 21 detections from three VIIRS feeds across six of eight observed dates, a 0.786 recurrence score, a 764 m observed radius, and a 0.694 discovery-priority score.
+- One unresolved candidate crosses the current 0.65 priority threshold. This is an observed property of the pinned files and current engineering formula, not an external validation result or a stable expected count.
+- Source-fingerprint IDs hash the fingerprint feature version and sorted source event IDs. Identical retained evidence produces identical IDs; adding evidence that changes cluster membership can intentionally create a new fingerprint ID.
+- The operations panel reports file modification age and observation lag separately. A recently copied file can still contain older observations, while an older bundled fixture can remain a valid deterministic demo input.
+
+### Engineering assumptions and controls
+
+- `thermal_source_fingerprint_v1` summarizes the retained observation window using FRP distribution, acquisition-hour concentration, day/night share, active dates/gaps, sensor support, DBSCAN radius/stability, recurrence, OSM proximity, and annual MODIS IGBP context. It is a software evidence profile, not remote identification of a physical asset.
+- Unknown-source discovery priority weights recurrence at 40%, active-day coverage at 20%, sensor support at 15%, engineered spatial stability at 15%, and bounded maximum FRP at 10%. The 0.65 priority cutoff is a tunable review-queue assumption and must not be displayed as a probability.
+- Spatial stability is currently `1 - radius / 1,500 m`, clipped to zero through one. That scale is chosen for triage relative to the existing DBSCAN sweep; it is not a published sensor-physics threshold.
+- Profile completeness combines observed-date coverage, sensor count, and detection count. It describes how much retained evidence contributes to the application profile, not data correctness or real-world source certainty.
+- A cache file is considered stale after two configured refresh intervals. Bundled checked-in files are always labeled `bundled_snapshot`, avoiding a false freshness claim based only on their filesystem timestamp.
+- The local ingestion audit uses an exclusive lock file and atomic replacement to coordinate the API and scheduler on one host. Distributed deployments need a transactional database/queue and should not treat this JSON file as a multi-host ledger.
+
+### Thermal-source fingerprint
+
+A versioned, deterministic summary of repeated thermal observations assigned to one analytical cluster. It makes timing, intensity, recurrence, sensor, spatial, and contextual evidence comparable while explicitly avoiding physical-source identification.
+
+### Discovery priority
+
+An engineered ordering score for unresolved candidates. Higher values place a candidate earlier in analyst review; the score is neither a calibrated probability nor confirmation that the observations come from one physical source or incident.
+
+### Profile completeness
+
+A bounded indicator of how much temporal, sensor, and detection support is available to populate a source fingerprint. Completeness does not imply truth, representativeness, or seasonal maturity.
+
+### Observation lag
+
+Elapsed wall-clock time since the newest retained satellite acquisition. This differs from file age and helps operators distinguish a recently processed old observation from a genuinely recent observation.
+
+### Ingestion run audit
+
+An append-only operational record of one refresh or archive attempt, including trigger, source mode, UTC timing, source/archive paths, normalized count, outcome, and sanitized failure type. It provides traceability but is not a cryptographically signed provenance ledger.
+
+### Baseline maturity
+
+A label describing the time coverage behind a fingerprint: snapshot-only, short-window, 30-day candidate, or seasonal candidate. It limits interpretation; crossing a maturity duration does not itself validate a model or establish normal facility behavior.

@@ -12,16 +12,20 @@ import type {
   HistoryReadiness,
   IndiaBoundary,
   IndustrialFacility,
+  IngestionRun,
   ModelBenchmarkCandidate,
   ModelBenchmarkEnvelope,
   ModelBenchmarkMetrics,
   ModelBenchmarkReport,
   ModelRegistryEntry,
   ModelTrainingReadiness,
+  OperationalHealth,
   PlaybackFrame,
   ReviewAlert,
+  SourceFingerprintCollection,
   ThermalEvent,
   ThermalClusterSummary,
+  ThermalSourceFingerprint,
 } from "./types";
 
 const API_BASE_URL =
@@ -484,6 +488,88 @@ type ApiModelRegistry = {
   promotion_policy: string[];
 };
 
+type ApiThermalSourceFingerprint = {
+  fingerprint_id: string;
+  cluster_id: string;
+  representative_event_id: string;
+  centroid_latitude: number;
+  centroid_longitude: number;
+  category: EventClass;
+  classification: string;
+  source_context: ThermalSourceFingerprint["sourceContext"];
+  detection_count: number;
+  sensor_count: number;
+  active_days: number;
+  observation_window_days: number;
+  observation_dates: string[];
+  mean_gap_days: number | null;
+  typical_utc_hours: number[];
+  day_detection_ratio: number;
+  night_detection_ratio: number;
+  median_frp_mw: number;
+  p90_frp_mw: number;
+  maximum_frp_mw: number;
+  frp_mad_mw: number;
+  spatial_radius_m: number;
+  spatial_stability: number;
+  recurrence_score: number;
+  profile_completeness: number;
+  baseline_maturity: ThermalSourceFingerprint["baselineMaturity"];
+  nearest_facility_name: string | null;
+  nearest_facility_distance_m: number | null;
+  land_cover_label: string | null;
+  discovery_priority: number;
+  discovery_status: ThermalSourceFingerprint["discoveryStatus"];
+  evidence: string[];
+  limitation: string;
+};
+
+type ApiSourceFingerprintCollection = {
+  total: number;
+  returned: number;
+  feature_version: string;
+  methodology: string;
+  fingerprints: ApiThermalSourceFingerprint[];
+};
+
+type ApiIngestionRun = {
+  run_id: string;
+  trigger: IngestionRun["trigger"];
+  status: IngestionRun["status"];
+  started_at: string;
+  finished_at: string;
+  source_mode: IngestionRun["sourceMode"];
+  files: string[];
+  archived_files: string[];
+  normalized_events: number;
+  error_type: string | null;
+};
+
+type ApiOperationalHealth = {
+  generated_at: string;
+  status: OperationalHealth["status"];
+  data_mode: OperationalHealth["dataMode"];
+  normalized_events: number;
+  latest_observation_at: string | null;
+  observation_lag_hours: number | null;
+  source_files: Array<{
+    name: string;
+    origin: "cache" | "bundled";
+    bytes: number;
+    modified_at: string;
+    age_hours: number;
+    status: OperationalHealth["sourceFiles"][number]["status"];
+  }>;
+  observed_calendar_days: number;
+  archive_snapshot_files: number;
+  last_ingestion_run: ApiIngestionRun | null;
+  refresh_interval_minutes: number;
+  scheduler_command: string;
+  issues: string[];
+};
+
+type ApiIngestionRunCollection = { runs: ApiIngestionRun[] };
+
 const confidenceLabel = (value: ApiEvidenceEvent["confidence"]) =>
   value === "unknown" ? "Unspecified" : value[0].toUpperCase() + value.slice(1);
 
@@ -927,6 +1013,56 @@ const adaptModelRegistryEntry = (entry: ApiModelRegistryEntry): ModelRegistryEnt
   notes: entry.notes,
 });
 
+const adaptSourceFingerprint = (
+  fingerprint: ApiThermalSourceFingerprint,
+): ThermalSourceFingerprint => ({
+  fingerprintId: fingerprint.fingerprint_id,
+  clusterId: fingerprint.cluster_id,
+  representativeEventId: fingerprint.representative_event_id,
+  coordinates: [fingerprint.centroid_longitude, fingerprint.centroid_latitude],
+  category: fingerprint.category,
+  classification: fingerprint.classification,
+  sourceContext: fingerprint.source_context,
+  detectionCount: fingerprint.detection_count,
+  sensorCount: fingerprint.sensor_count,
+  activeDays: fingerprint.active_days,
+  observationWindowDays: fingerprint.observation_window_days,
+  observationDates: fingerprint.observation_dates,
+  meanGapDays: fingerprint.mean_gap_days,
+  typicalUtcHours: fingerprint.typical_utc_hours,
+  dayDetectionRatio: fingerprint.day_detection_ratio,
+  nightDetectionRatio: fingerprint.night_detection_ratio,
+  medianFrp: fingerprint.median_frp_mw,
+  p90Frp: fingerprint.p90_frp_mw,
+  maximumFrp: fingerprint.maximum_frp_mw,
+  frpMad: fingerprint.frp_mad_mw,
+  spatialRadiusM: fingerprint.spatial_radius_m,
+  spatialStability: fingerprint.spatial_stability,
+  recurrenceScore: fingerprint.recurrence_score,
+  profileCompleteness: fingerprint.profile_completeness,
+  baselineMaturity: fingerprint.baseline_maturity,
+  nearestFacilityName: fingerprint.nearest_facility_name,
+  nearestFacilityDistanceM: fingerprint.nearest_facility_distance_m,
+  landCoverLabel: fingerprint.land_cover_label,
+  discoveryPriority: fingerprint.discovery_priority,
+  discoveryStatus: fingerprint.discovery_status,
+  evidence: fingerprint.evidence,
+  limitation: fingerprint.limitation,
+});
+
+const adaptIngestionRun = (run: ApiIngestionRun): IngestionRun => ({
+  runId: run.run_id,
+  trigger: run.trigger,
+  status: run.status,
+  startedAt: run.started_at,
+  finishedAt: run.finished_at,
+  sourceMode: run.source_mode,
+  files: run.files,
+  archivedFiles: run.archived_files,
+  normalizedEvents: run.normalized_events,
+  errorType: run.error_type,
+});
+
 const adaptSensitivityVariant = (
   variant: ApiClusteringSensitivityVariant,
 ): ClusteringSensitivityVariant => ({
@@ -1165,6 +1301,77 @@ export async function fetchClusteringSensitivity(
     methodology: report.methodology,
     caveats: report.caveats,
   };
+}
+
+export async function fetchUnknownDiscoveries(
+  signal?: AbortSignal,
+): Promise<SourceFingerprintCollection> {
+  const response = await fetch(`${API_BASE_URL}/discoveries/unknown?limit=100`, {
+    signal,
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error(`Unknown-source discovery request failed with ${response.status}`);
+  }
+  const collection = (await response.json()) as ApiSourceFingerprintCollection;
+  return {
+    total: collection.total,
+    returned: collection.returned,
+    featureVersion: collection.feature_version,
+    methodology: collection.methodology,
+    fingerprints: collection.fingerprints.map(adaptSourceFingerprint),
+  };
+}
+
+export async function fetchOperationalHealth(
+  signal?: AbortSignal,
+): Promise<OperationalHealth> {
+  const response = await fetch(`${API_BASE_URL}/operations/health`, {
+    signal,
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error(`Operational health request failed with ${response.status}`);
+  }
+  const health = (await response.json()) as ApiOperationalHealth;
+  return {
+    generatedAt: health.generated_at,
+    status: health.status,
+    dataMode: health.data_mode,
+    normalizedEvents: health.normalized_events,
+    latestObservationAt: health.latest_observation_at,
+    observationLagHours: health.observation_lag_hours,
+    sourceFiles: health.source_files.map((file) => ({
+      name: file.name,
+      origin: file.origin,
+      bytes: file.bytes,
+      modifiedAt: file.modified_at,
+      ageHours: file.age_hours,
+      status: file.status,
+    })),
+    observedCalendarDays: health.observed_calendar_days,
+    archiveSnapshotFiles: health.archive_snapshot_files,
+    lastIngestionRun: health.last_ingestion_run
+      ? adaptIngestionRun(health.last_ingestion_run)
+      : null,
+    refreshIntervalMinutes: health.refresh_interval_minutes,
+    schedulerCommand: health.scheduler_command,
+    issues: health.issues,
+  };
+}
+
+export async function fetchIngestionRuns(
+  signal?: AbortSignal,
+): Promise<IngestionRun[]> {
+  const response = await fetch(`${API_BASE_URL}/operations/ingestion-runs?limit=12`, {
+    signal,
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error(`Ingestion run history request failed with ${response.status}`);
+  }
+  const collection = (await response.json()) as ApiIngestionRunCollection;
+  return collection.runs.map(adaptIngestionRun);
 }
 
 export async function createClusterReview(

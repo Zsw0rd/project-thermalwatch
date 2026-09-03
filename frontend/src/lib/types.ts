@@ -233,6 +233,89 @@ export type ModelRegistry = {
   promotionPolicy: string[];
 };
 
+export type ThermalSourceFingerprint = {
+  fingerprintId: string;
+  clusterId: string;
+  representativeEventId: string;
+  coordinates: [number, number];
+  category: EventClass;
+  classification: string;
+  sourceContext: "mapped_industrial" | "land_cover_context" | "unresolved";
+  detectionCount: number;
+  sensorCount: number;
+  activeDays: number;
+  observationWindowDays: number;
+  observationDates: string[];
+  meanGapDays: number | null;
+  typicalUtcHours: number[];
+  dayDetectionRatio: number;
+  nightDetectionRatio: number;
+  medianFrp: number;
+  p90Frp: number;
+  maximumFrp: number;
+  frpMad: number;
+  spatialRadiusM: number;
+  spatialStability: number;
+  recurrenceScore: number;
+  profileCompleteness: number;
+  baselineMaturity:
+    | "snapshot_only"
+    | "short_window"
+    | "thirty_day_candidate"
+    | "seasonal_candidate";
+  nearestFacilityName: string | null;
+  nearestFacilityDistanceM: number | null;
+  landCoverLabel: string | null;
+  discoveryPriority: number;
+  discoveryStatus: "priority_unknown" | "watch_unknown" | "contextualized_source";
+  evidence: string[];
+  limitation: string;
+};
+
+export type SourceFingerprintCollection = {
+  total: number;
+  returned: number;
+  featureVersion: string;
+  methodology: string;
+  fingerprints: ThermalSourceFingerprint[];
+};
+
+export type IngestionRun = {
+  runId: string;
+  trigger: "manual_api" | "scheduler" | "archive_only";
+  status: "succeeded" | "failed";
+  startedAt: string;
+  finishedAt: string;
+  sourceMode: "authenticated_area_api" | "public_firms_feeds" | "local_archive";
+  files: string[];
+  archivedFiles: string[];
+  normalizedEvents: number;
+  errorType: string | null;
+};
+
+export type OperationalHealth = {
+  generatedAt: string;
+  status: "healthy" | "demo_ready" | "attention";
+  dataMode: "live" | "snapshot";
+  normalizedEvents: number;
+  latestObservationAt: string | null;
+  observationLagHours: number | null;
+  sourceFiles: Array<{
+    name: string;
+    origin: "cache" | "bundled";
+    bytes: number;
+    modifiedAt: string;
+    ageHours: number;
+    status: "fresh" | "stale" | "bundled_snapshot";
+  }>;
+  observedCalendarDays: number;
+  archiveSnapshotFiles: number;
+  lastIngestionRun: IngestionRun | null;
+  refreshIntervalMinutes: number;
+  schedulerCommand: string;
+  issues: string[];
+};
+
 export type ThermalEvent = {
   id: string;
   shortId: string;

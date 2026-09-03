@@ -24,16 +24,19 @@ from app.schemas.events import (
     EventCollection,
     EventEvidenceGraph,
     HistoricalReadiness,
+    IngestionRunCollection,
     LandCoverRefreshResponse,
     ModelBenchmarkEnvelope,
     ModelRegistry,
     ModelTrainingReadiness,
     NormalizedThermalEvent,
+    OperationalHealth,
     PersistenceResponse,
     PlaybackCollection,
     RefreshResponse,
     ThermalClusterCollection,
     ThermalClusterSummary,
+    ThermalSourceFingerprintCollection,
 )
 from app.schemas.facilities import (
     FacilityCollection,
@@ -60,9 +63,14 @@ from app.services.firms import (
     current_source_files,
     invalidate_event_cache,
     load_events,
-    refresh_source_files,
 )
 from app.services.history_archive import archive_source_files, history_readiness
+from app.services.ingestion_operations import (
+    ingestion_runs,
+    operational_health,
+    record_archive_only_run,
+    run_firms_ingestion_cycle,
+)
 from app.services.land_cover import (
     LAYER_ID,
     OBSERVATION_DATE,
@@ -83,6 +91,7 @@ from app.services.model_pipeline import (
 )
 from app.services.osm import load_facilities, refresh_facilities
 from app.services.persistence import persist_current_snapshot
+from app.services.source_fingerprint import source_fingerprint_collection
 from app.services.temporal import (
     analytics_dashboard,
     build_cluster_summaries,
@@ -346,6 +355,40 @@ async def get_cluster(cluster_id: str) -> ThermalClusterSummary:
 
 
 @router.get(
+    "/source-fingerprints",
+    response_model=ThermalSourceFingerprintCollection,
+    tags=["source discovery"],
+)
+async def source_fingerprints(
+    limit: Annotated[int, Query(ge=1, le=1000)] = 100,
+    category: EventCategory | None = None,
+) -> ThermalSourceFingerprintCollection:
+    return await run_in_threadpool(
+        source_fingerprint_collection,
+        load_events(),
+        category=category,
+        limit=limit,
+    )
+
+
+@router.get(
+    "/discoveries/unknown",
+    response_model=ThermalSourceFingerprintCollection,
+    tags=["source discovery"],
+)
+async def unknown_source_discoveries(
+    limit: Annotated[int, Query(ge=1, le=1000)] = 100,
+) -> ThermalSourceFingerprintCollection:
+    return await run_in_threadpool(
+        source_fingerprint_collection,
+        load_events(),
+        category="unknown",
+        discoveries_only=True,
+        limit=limit,
+    )
+
+
+@router.get(
     "/validation/reviews",
     response_model=ClusterReviewCollection,
     tags=["validation"],
@@ -575,7 +618,7 @@ async def refresh_land_cover() -> LandCoverRefreshResponse:
 @router.post("/ingestion/firms/refresh", response_model=RefreshResponse, tags=["ingestion"])
 async def refresh_firms() -> RefreshResponse:
     try:
-        return await run_in_threadpool(refresh_source_files)
+        return await run_in_threadpool(run_firms_ingestion_cycle, "manual_api")
     except Exception as exc:
         raise HTTPException(
             status_code=502,
@@ -591,18 +634,49 @@ async def refresh_firms() -> RefreshResponse:
 async def archive_current_firms() -> ArchiveResponse:
     settings = get_settings()
     archived_at = datetime.now(UTC)
+    source_files = current_source_files(settings)
     archived_files = await run_in_threadpool(
         archive_source_files,
-        current_source_files(settings),
+        source_files,
         settings,
         archived_at,
     )
     invalidate_event_cache()
+    events = load_events(settings)
+    await run_in_threadpool(
+        record_archive_only_run,
+        started_at=archived_at,
+        finished_at=datetime.now(UTC),
+        files=[str(path) for path in source_files],
+        archived_files=archived_files,
+        normalized_events=len(events),
+        settings=settings,
+    )
     return ArchiveResponse(
         archived_at=archived_at,
         archived_files=archived_files,
-        history=history_readiness(load_events(settings), settings),
+        history=history_readiness(events, settings),
     )
+
+
+@router.get(
+    "/operations/health",
+    response_model=OperationalHealth,
+    tags=["operations"],
+)
+async def ingestion_health() -> OperationalHealth:
+    return await run_in_threadpool(operational_health, load_events())
+
+
+@router.get(
+    "/operations/ingestion-runs",
+    response_model=IngestionRunCollection,
+    tags=["operations"],
+)
+async def ingestion_run_history(
+    limit: Annotated[int, Query(ge=1, le=250)] = 50,
+) -> IngestionRunCollection:
+    return ingestion_runs(limit=limit)
 
 
 @router.post(

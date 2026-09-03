@@ -35,6 +35,14 @@ docker compose up --build
 - API documentation: `http://localhost:8000/docs`
 - API health: `http://localhost:8000/api/v1/health`
 
+To opt into repeated NASA FIRMS refresh/archive cycles, start the scheduler profile. It runs one audited cycle immediately, then repeats at `FIRMS_REFRESH_INTERVAL_MINUTES` (six hours by default):
+
+```powershell
+docker compose --profile live-ingestion up --build
+```
+
+The scheduler uses the authenticated Area API when `FIRMS_MAP_KEY` is configured and the official public FIRMS feeds otherwise. Its cache, immutable archive, and audit file are mounted locally; failures record only the exception type so credentials never enter the audit.
+
 ## Operational API surfaces
 
 - `GET /api/v1/events` — normalized, filterable NASA FIRMS events;
@@ -55,6 +63,10 @@ docker compose up --build
 - `GET /api/v1/models/benchmark` — reproducible development benchmark metadata and metrics, never automatic deployment;
 - `GET /api/v1/models/registry` — serving/development lifecycle, artifact integrity, promotion policy, and rollback target;
 - `GET /api/v1/events/{event_id}/evidence-graph` — attributed observation/context/reasoning links with an explicit interpretation boundary;
+- `GET /api/v1/source-fingerprints` — observed-window thermal profiles for every analytical cluster;
+- `GET /api/v1/discoveries/unknown` — ranked unresolved-source candidates, never asserted source identities;
+- `GET /api/v1/operations/health` — source-file freshness, observation lag, archive readiness, scheduler cadence, and current issues;
+- `GET /api/v1/operations/ingestion-runs` — append-only refresh/archive execution history;
 - `GET /api/v1/playback` — cumulative daily observation frames;
 - `GET /api/v1/history/readiness` — honest 30/90-day archive coverage telemetry;
 - `GET /api/v1/geography/india` — attributed map-ready India ADM0 boundary;
@@ -69,6 +81,7 @@ docker compose up --build
 - API-first NASA FIRMS snapshot mode with a deterministic simulation fallback;
 - normalized NOAA-20, NOAA-21, and S-NPP VIIRS data with raw fields preserved server-side;
 - automatic content-addressed raw-FIRMS archival on every successful refresh, with overlap-safe event deduplication;
+- opt-in scheduled FIRMS refreshes with cross-process-safe local audit records and explicit source freshness/lag telemetry;
 - explicit 30/90-day readiness indicators that do not claim a learned baseline before the archive supports one;
 - deterministic India ADM0 point-in-polygon containment for both FIRMS detections and OSM facility context;
 - OpenStreetMap proximity context for refineries, flares, power plants, steelmaking sites, and quarries;
@@ -80,6 +93,7 @@ docker compose up --build
 - seven-day active-day recurrence, spatial stability, multi-sensor support, and median/MAD anomaly features;
 - category and text filtering;
 - navigable overview, alert triage, evidence-source, and temporal-analytics workspaces;
+- unknown-source discovery workspace with a satellite/grid candidate map, stable evidence fingerprints, ranked review priority, timing/FRP/spatial bands, and explicit uncertainty;
 - analyst validation workspace with satellite/grid context, a structured review packet, and append-only context labels that never confirm an incident;
 - governed Models workspace with reviewed-label gates, spatial-holdout diagnostics, confusion matrix, feature signals, and captured GPU provenance;
 - versioned model registry with one serving rules model, ignored offline artifacts, integrity digests, explicit promotion controls, rollback target, and downloadable governance brief;
@@ -91,7 +105,7 @@ docker compose up --build
 - FRP, confidence, co-observation, and facility evidence;
 - evidence-backed vegetation and agricultural candidates that retain the exact annual land-cover class and never claim incident confirmation;
 - visible source attribution and safety labeling;
-- responsive intelligence drawer on smaller screens;
+- responsive intelligence drawer and complete mobile workspace navigation;
 - Alembic/PostGIS schema and batched snapshot persistence.
 
 ## Reproducible model benchmark
