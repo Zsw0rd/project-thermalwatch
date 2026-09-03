@@ -1,5 +1,8 @@
 import type {
   AnalyticsDashboard,
+  ClusteringDiagnostics,
+  ClusterReview,
+  ClusterReviewLabel,
   DashboardDataset,
   EventClass,
   FacilityMonitor,
@@ -29,6 +32,11 @@ type ApiEvidenceEvent = {
   brightness_delta_k: number | null;
   day_night: "D" | "N" | "U";
   cluster_id: string;
+  cluster_method: "metric_dbscan_haversine_v1";
+  cluster_role: "core" | "border" | "noise";
+  cluster_radius_m: number;
+  cluster_epsilon_m: number;
+  cluster_min_samples: number;
   cluster_detection_count: number;
   cluster_sensor_count: number;
   recurrence_score: number;
@@ -193,6 +201,11 @@ type ApiCluster = {
   representative_event_id: string;
   centroid_latitude: number;
   centroid_longitude: number;
+  cluster_method: "metric_dbscan_haversine_v1";
+  cluster_radius_m: number;
+  cluster_epsilon_m: number;
+  cluster_min_samples: number;
+  density_role_counts: Record<string, number>;
   detection_count: number;
   sensor_count: number;
   active_days: number;
@@ -261,6 +274,47 @@ type ApiGeographyResponse = IndiaBoundary & {
   metadata_url: string;
   limitations: string[];
 };
+
+type ApiClusteringDiagnostics = {
+  algorithm: "DBSCAN";
+  implementation: "metric_dbscan_haversine_v1";
+  distance_metric: "Haversine great-circle distance";
+  epsilon_m: number;
+  min_samples: number;
+  total_events: number;
+  total_clusters: number;
+  clustered_events: number;
+  noise_events: number;
+  core_events: number;
+  border_events: number;
+  multi_event_clusters: number;
+  singleton_clusters: number;
+  median_cluster_radius_m: number;
+  p95_cluster_radius_m: number;
+  maximum_cluster_radius_m: number;
+  legacy_rounded_grid_cells: number;
+  cluster_count_delta_vs_legacy: number;
+  methodology: string;
+  caveats: string[];
+};
+
+type ApiClusterReview = {
+  review_id: string;
+  cluster_id: string;
+  representative_event_id: string;
+  proposed_category: EventClass;
+  proposed_classification: string;
+  analyst_label: ClusterReviewLabel;
+  note: string | null;
+  reviewed_by: string;
+  reviewed_at: string;
+  evidence_snapshot: Record<string, unknown>;
+  model_version: string;
+  feature_version: string;
+  incident_confirmation: false;
+};
+
+type ApiClusterReviewCollection = { reviews: ApiClusterReview[] };
 
 const confidenceLabel = (value: ApiEvidenceEvent["confidence"]) =>
   value === "unknown" ? "Unspecified" : value[0].toUpperCase() + value.slice(1);
@@ -347,7 +401,7 @@ const adaptOperationalEvent = (event: ApiEvidenceEvent): ThermalEvent => {
         label: "Robust FRP baseline",
         value: `${event.baseline_frp_mw.toFixed(2)} MW median · MAD ${event.frp_mad_mw.toFixed(2)}`,
         impact: event.anomaly_status === "elevated" ? "positive" : "neutral",
-        source: "AegisFire rules_temporal_v2",
+        source: `AegisFire ${event.model_version}`,
       },
       {
         label: "Context status",
@@ -388,6 +442,9 @@ const adaptOperationalEvent = (event: ApiEvidenceEvent): ThermalEvent => {
     dataOrigin: "nasa-firms",
     sourceUrl: event.source_attribution.source_url,
     clusterId: event.cluster_id,
+    clusterRole: event.cluster_role,
+    clusterRadiusM: event.cluster_radius_m,
+    clusterEpsilonM: event.cluster_epsilon_m,
     anomalyStatus: event.anomaly_status,
     anomalyScore: event.anomaly_score ?? undefined,
     modelVersion: event.model_version,
@@ -443,6 +500,11 @@ const adaptCluster = (cluster: ApiCluster): ThermalClusterSummary => ({
   clusterId: cluster.cluster_id,
   representativeEventId: cluster.representative_event_id,
   coordinates: [cluster.centroid_longitude, cluster.centroid_latitude],
+  clusterMethod: cluster.cluster_method,
+  clusterRadiusM: cluster.cluster_radius_m,
+  clusterEpsilonM: cluster.cluster_epsilon_m,
+  clusterMinSamples: cluster.cluster_min_samples,
+  densityRoleCounts: cluster.density_role_counts,
   detectionCount: cluster.detection_count,
   sensorCount: cluster.sensor_count,
   activeDays: cluster.active_days,
@@ -534,6 +596,70 @@ const adaptFacilityMonitor = (
   caveat: monitor.caveat,
 });
 
+const adaptClusteringDiagnostics = (
+  body: ApiClusteringDiagnostics,
+): ClusteringDiagnostics => ({
+  algorithm: body.algorithm,
+  implementation: body.implementation,
+  distanceMetric: body.distance_metric,
+  epsilonM: body.epsilon_m,
+  minSamples: body.min_samples,
+  totalEvents: body.total_events,
+  totalClusters: body.total_clusters,
+  clusteredEvents: body.clustered_events,
+  noiseEvents: body.noise_events,
+  coreEvents: body.core_events,
+  borderEvents: body.border_events,
+  multiEventClusters: body.multi_event_clusters,
+  singletonClusters: body.singleton_clusters,
+  medianClusterRadiusM: body.median_cluster_radius_m,
+  p95ClusterRadiusM: body.p95_cluster_radius_m,
+  maximumClusterRadiusM: body.maximum_cluster_radius_m,
+  legacyRoundedGridCells: body.legacy_rounded_grid_cells,
+  clusterCountDeltaVsLegacy: body.cluster_count_delta_vs_legacy,
+  methodology: body.methodology,
+  caveats: body.caveats,
+});
+
+const optionalNumber = (value: unknown): number | undefined =>
+  typeof value === "number" ? value : undefined;
+
+const adaptClusterReview = (review: ApiClusterReview): ClusterReview => ({
+  reviewId: review.review_id,
+  clusterId: review.cluster_id,
+  representativeEventId: review.representative_event_id,
+  proposedCategory: review.proposed_category,
+  proposedClassification: review.proposed_classification,
+  analystLabel: review.analyst_label,
+  note: review.note,
+  reviewedBy: review.reviewed_by,
+  reviewedAt: review.reviewed_at,
+  evidenceSnapshot: {
+    detectionCount: optionalNumber(review.evidence_snapshot.detection_count),
+    sensorCount: optionalNumber(review.evidence_snapshot.sensor_count),
+    activeDays: optionalNumber(review.evidence_snapshot.active_days),
+    observationWindowDays: optionalNumber(
+      review.evidence_snapshot.observation_window_days,
+    ),
+    clusterRadiusM: optionalNumber(review.evidence_snapshot.cluster_radius_m),
+    clusterEpsilonM: optionalNumber(review.evidence_snapshot.cluster_epsilon_m),
+    persistenceScore: optionalNumber(review.evidence_snapshot.persistence_score),
+    persistenceLabel:
+      typeof review.evidence_snapshot.persistence_label === "string"
+        ? review.evidence_snapshot.persistence_label
+        : undefined,
+    anomalyStatus:
+      typeof review.evidence_snapshot.anomaly_status === "string"
+        ? review.evidence_snapshot.anomaly_status
+        : undefined,
+    medianFrpMw: optionalNumber(review.evidence_snapshot.median_frp_mw),
+    maxFrpMw: optionalNumber(review.evidence_snapshot.max_frp_mw),
+  },
+  modelVersion: review.model_version,
+  featureVersion: review.feature_version,
+  incidentConfirmation: review.incident_confirmation,
+});
+
 export async function fetchOperationalEvents(signal?: AbortSignal): Promise<DashboardDataset> {
   const [
     eventResponse,
@@ -546,6 +672,8 @@ export async function fetchOperationalEvents(signal?: AbortSignal): Promise<Dash
     monitorResponse,
     readinessResponse,
     geographyResponse,
+    diagnosticsResponse,
+    reviewsResponse,
   ] = await Promise.all([
     fetch(`${API_BASE_URL}/events?min_frp=1&window_hours=24&limit=2000`, {
       signal,
@@ -569,6 +697,8 @@ export async function fetchOperationalEvents(signal?: AbortSignal): Promise<Dash
     fetch(`${API_BASE_URL}/facility-monitors?limit=100`, { signal, cache: "no-store" }),
     fetch(`${API_BASE_URL}/history/readiness`, { signal, cache: "no-store" }),
     fetch(`${API_BASE_URL}/geography/india`, { signal, cache: "no-store" }),
+    fetch(`${API_BASE_URL}/clustering/diagnostics`, { signal, cache: "no-store" }),
+    fetch(`${API_BASE_URL}/validation/reviews`, { signal, cache: "no-store" }),
   ]);
   if (!eventResponse.ok) {
     throw new Error(`AegisFire API returned ${eventResponse.status}`);
@@ -601,6 +731,12 @@ export async function fetchOperationalEvents(signal?: AbortSignal): Promise<Dash
   const geographyBody = geographyResponse.ok
     ? ((await geographyResponse.json()) as ApiGeographyResponse)
     : null;
+  const diagnosticsBody = diagnosticsResponse.ok
+    ? ((await diagnosticsResponse.json()) as ApiClusteringDiagnostics)
+    : null;
+  const reviewsBody: ApiClusterReviewCollection = reviewsResponse.ok
+    ? ((await reviewsResponse.json()) as ApiClusterReviewCollection)
+    : { reviews: [] };
   const facilities: IndustrialFacility[] = facilityBody.facilities.map((facility) => ({
     id: facility.osm_id,
     name: facility.name,
@@ -639,10 +775,34 @@ export async function fetchOperationalEvents(signal?: AbortSignal): Promise<Dash
     playback: adaptPlayback(playbackBody),
     facilityMonitors: monitorBody.monitors.map(adaptFacilityMonitor),
     historyReadiness: readinessBody ? adaptHistoryReadiness(readinessBody) : null,
+    clusteringDiagnostics: diagnosticsBody
+      ? adaptClusteringDiagnostics(diagnosticsBody)
+      : null,
+    clusterReviews: reviewsBody.reviews.map(adaptClusterReview),
     boundary: geographyBody
       ? { type: geographyBody.type, features: geographyBody.features }
       : null,
   };
+}
+
+export async function createClusterReview(
+  clusterId: string,
+  label: ClusterReviewLabel,
+  note: string,
+): Promise<ClusterReview> {
+  const response = await fetch(`${API_BASE_URL}/clusters/${clusterId}/reviews`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      label,
+      note: note.trim() || null,
+      reviewed_by: "web_analyst",
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(`Cluster review failed with ${response.status}`);
+  }
+  return adaptClusterReview((await response.json()) as ApiClusterReview);
 }
 
 export async function updateAlertReview(

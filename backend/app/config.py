@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     india_boundary_file: Path = Path("data/samples/india_adm0_geoboundary.geojson")
     firms_request_timeout_seconds: int = 30
     india_bbox: tuple[float, float, float, float] = (68.0, 6.0, 98.0, 38.0)
+    clustering_epsilon_m: float = 750.0
+    clustering_min_samples: int = 2
+    cluster_review_file: Path = Path("data/cache/cluster_review_audit.json")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

@@ -6,6 +6,7 @@ from statistics import median
 
 from app.schemas.events import (
     AnalyticsDashboard,
+    ClusteringDiagnostics,
     DailyAnalyticsPoint,
     NormalizedThermalEvent,
     PlaybackCollection,
@@ -13,6 +14,7 @@ from app.schemas.events import (
     ThermalClusterCollection,
     ThermalClusterSummary,
 )
+from app.services.spatial_clustering import radius_percentiles
 
 
 def _window(events: list[NormalizedThermalEvent]) -> tuple[datetime, datetime, int]:
@@ -57,6 +59,7 @@ def build_cluster_summaries(
         evidence = [
             f"Observed on {active_days} of {window_days} days",
             f"{len(members)} detections from {len({event.source for event in members})} VIIRS source(s)",
+            f"Metric DBSCAN radius {latest.cluster_radius_m:.0f} m at {latest.cluster_epsilon_m:.0f} m epsilon",
             f"Median FRP {latest.baseline_frp_mw:.2f} MW; MAD {latest.frp_mad_mw:.2f} MW",
             "Persistence is an engineering score; candidate ranking does not constitute incident confirmation",
         ]
@@ -79,6 +82,11 @@ def build_cluster_summaries(
                 representative_event_id=latest.id,
                 centroid_latitude=sum(event.latitude for event in members) / len(members),
                 centroid_longitude=sum(event.longitude for event in members) / len(members),
+                cluster_method=latest.cluster_method,
+                cluster_radius_m=max(event.cluster_radius_m for event in members),
+                cluster_epsilon_m=latest.cluster_epsilon_m,
+                cluster_min_samples=latest.cluster_min_samples,
+                density_role_counts=dict(Counter(event.cluster_role for event in members)),
                 detection_count=len(members),
                 sensor_count=len({event.source for event in members}),
                 active_days=active_days,
@@ -101,9 +109,7 @@ def build_cluster_summaries(
                 nearest_facility=nearest,
                 temporal_history=latest.temporal_history,
                 evidence=evidence,
-                data_quality=(
-                    "seven_day_observation" if window_days >= 5 else "snapshot_only"
-                ),
+                data_quality=("seven_day_observation" if window_days >= 5 else "snapshot_only"),
             )
         )
 
@@ -137,7 +143,7 @@ def cluster_collection(
         total=len(summaries),
         returned=min(limit, len(summaries)),
         methodology=(
-            "Deterministic ~1 km cells scored from active-day frequency, detection density, "
+            "Deterministic Haversine DBSCAN clusters scored from active-day frequency, detection density, "
             "spatial stability, and multi-sensor support. Elevated FRP uses a median/MAD rule."
         ),
         caveats=[
@@ -186,8 +192,7 @@ def analytics_dashboard(events: list[NormalizedThermalEvent]) -> AnalyticsDashbo
         recurring_candidates=len(recurring),
         elevated_clusters=sum(cluster.anomaly_status == "elevated" for cluster in clusters),
         unmapped_persistent_candidates=sum(
-            cluster.persistence_label == "persistent_candidate"
-            and cluster.nearest_facility is None
+            cluster.persistence_label == "persistent_candidate" and cluster.nearest_facility is None
             for cluster in clusters
         ),
         category_counts=dict(categories),
@@ -195,7 +200,7 @@ def analytics_dashboard(events: list[NormalizedThermalEvent]) -> AnalyticsDashbo
         daily_activity=daily_activity,
         top_persistent_sources=persistent[:12],
         methodology=(
-            "Observed FIRMS/OSM seven-day evidence with deterministic persistence and robust "
+            "Observed FIRMS/OSM short-window evidence with metric DBSCAN persistence and robust "
             "median/MAD anomaly features plus annual MODIS land-cover context; no trained ML "
             "or incident confirmation is claimed."
         ),
@@ -254,7 +259,62 @@ def playback_collection(events: list[NormalizedThermalEvent]) -> PlaybackCollect
         caveats=[
             "A seven-day rolling feed may touch eight partial UTC calendar dates.",
             "Playback shows observation timing, not fire spread or confirmed incident evolution.",
-            "Approximate one-kilometre cell recurrence is an engineering heuristic.",
+            "Metric DBSCAN recurrence is an engineering grouping assumption and remains sensitive to epsilon.",
         ],
         frames=frames,
+    )
+
+
+def clustering_diagnostics(
+    events: list[NormalizedThermalEvent],
+) -> ClusteringDiagnostics:
+    epsilon_m = events[0].cluster_epsilon_m if events else 750.0
+    min_samples = events[0].cluster_min_samples if events else 2
+    cluster_sizes = Counter(event.cluster_id for event in events)
+    radii_by_cluster: dict[str, float] = {}
+    for event in events:
+        radii_by_cluster[event.cluster_id] = max(
+            radii_by_cluster.get(event.cluster_id, 0.0),
+            event.cluster_radius_m,
+        )
+    median_radius, p95_radius, maximum_radius = radius_percentiles(
+        tuple(
+            radius
+            for cluster_id, radius in radii_by_cluster.items()
+            if cluster_sizes[cluster_id] > 1
+        )
+    )
+    legacy_cells = {
+        f"{round(event.latitude, 2):.2f}:{round(event.longitude, 2):.2f}" for event in events
+    }
+    role_counts = Counter(event.cluster_role for event in events)
+    return ClusteringDiagnostics(
+        generated_at=datetime.now(UTC),
+        epsilon_m=epsilon_m,
+        min_samples=min_samples,
+        total_events=len(events),
+        total_clusters=len(cluster_sizes),
+        clustered_events=len(events) - role_counts["noise"],
+        noise_events=role_counts["noise"],
+        core_events=role_counts["core"],
+        border_events=role_counts["border"],
+        multi_event_clusters=sum(size > 1 for size in cluster_sizes.values()),
+        singleton_clusters=sum(size == 1 for size in cluster_sizes.values()),
+        median_cluster_radius_m=round(median_radius, 2),
+        p95_cluster_radius_m=round(p95_radius, 2),
+        maximum_cluster_radius_m=round(maximum_radius, 2),
+        legacy_rounded_grid_cells=len(legacy_cells),
+        cluster_count_delta_vs_legacy=len(cluster_sizes) - len(legacy_cells),
+        methodology=(
+            "Deterministic DBSCAN uses Haversine great-circle distance on coordinates, "
+            f"a {epsilon_m:.0f} m epsilon, and {min_samples}-point minimum density. "
+            "Noise detections remain visible "
+            "as explicitly labelled singleton analytical clusters."
+        ),
+        caveats=[
+            f"The {epsilon_m:.0f} m epsilon and {min_samples}-sample density threshold are engineering assumptions that require validation against reviewed examples.",
+            "A DBSCAN cluster can connect points through a chain even when its final radius exceeds epsilon.",
+            "Membership-derived cluster IDs can change when newly archived observations alter cluster membership.",
+            "Cluster diagnostics evaluate grouping behavior; they do not validate or confirm incidents.",
+        ],
     )

@@ -103,6 +103,9 @@ export type ThermalEvent = {
   dataOrigin?: "simulation" | "nasa-firms";
   sourceUrl?: string;
   clusterId?: string;
+  clusterRole?: "core" | "border" | "noise";
+  clusterRadiusM?: number;
+  clusterEpsilonM?: number;
   anomalyStatus?: "elevated" | "within_observed_range" | "insufficient_baseline";
   anomalyScore?: number;
   modelVersion?: string;
@@ -134,6 +137,8 @@ export type DashboardDataset = {
   playback: PlaybackFrame[];
   facilityMonitors: FacilityMonitor[];
   historyReadiness: HistoryReadiness | null;
+  clusteringDiagnostics: ClusteringDiagnostics | null;
+  clusterReviews: ClusterReview[];
   boundary: IndiaBoundary | null;
 };
 
@@ -141,6 +146,11 @@ export type ThermalClusterSummary = {
   clusterId: string;
   representativeEventId: string;
   coordinates: [number, number];
+  clusterMethod: "metric_dbscan_haversine_v1";
+  clusterRadiusM: number;
+  clusterEpsilonM: number;
+  clusterMinSamples: number;
+  densityRoleCounts: Record<string, number>;
   detectionCount: number;
   sensorCount: number;
   activeDays: number;
@@ -242,4 +252,63 @@ export type AnalyticsDashboard = {
   severityCounts: Record<string, number>;
   dailyActivity: DailyAnalyticsPoint[];
   methodology: string;
+};
+
+export type ClusteringDiagnostics = {
+  algorithm: "DBSCAN";
+  implementation: "metric_dbscan_haversine_v1";
+  distanceMetric: "Haversine great-circle distance";
+  epsilonM: number;
+  minSamples: number;
+  totalEvents: number;
+  totalClusters: number;
+  clusteredEvents: number;
+  noiseEvents: number;
+  coreEvents: number;
+  borderEvents: number;
+  multiEventClusters: number;
+  singletonClusters: number;
+  medianClusterRadiusM: number;
+  p95ClusterRadiusM: number;
+  maximumClusterRadiusM: number;
+  legacyRoundedGridCells: number;
+  clusterCountDeltaVsLegacy: number;
+  methodology: string;
+  caveats: string[];
+};
+
+export type ClusterReviewLabel =
+  | "likely_industrial"
+  | "likely_vegetation"
+  | "likely_agricultural"
+  | "likely_other"
+  | "uncertain"
+  | "exclude_data_quality";
+
+export type ClusterReview = {
+  reviewId: string;
+  clusterId: string;
+  representativeEventId: string;
+  proposedCategory: EventClass;
+  proposedClassification: string;
+  analystLabel: ClusterReviewLabel;
+  note: string | null;
+  reviewedBy: string;
+  reviewedAt: string;
+  evidenceSnapshot: {
+    detectionCount?: number;
+    sensorCount?: number;
+    activeDays?: number;
+    observationWindowDays?: number;
+    clusterRadiusM?: number;
+    clusterEpsilonM?: number;
+    persistenceScore?: number;
+    persistenceLabel?: string;
+    anomalyStatus?: string;
+    medianFrpMw?: number;
+    maxFrpMw?: number;
+  };
+  modelVersion: string;
+  featureVersion: string;
+  incidentConfirmation: false;
 };

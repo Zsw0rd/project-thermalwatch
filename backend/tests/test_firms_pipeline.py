@@ -20,6 +20,9 @@ def test_sample_pipeline_normalizes_and_filters_events() -> None:
     assert boundary is not None
     assert all(contains_point(boundary, event.latitude, event.longitude) for event in events)
     assert all(event.administrative_area is not None for event in events)
+    assert all(event.cluster_method == "metric_dbscan_haversine_v1" for event in events)
+    assert all(event.cluster_epsilon_m == settings.clustering_epsilon_m for event in events)
+    assert all(event.cluster_role in {"core", "border", "noise"} for event in events)
 
 
 def test_osm_context_is_clipped_to_the_same_administrative_boundary() -> None:

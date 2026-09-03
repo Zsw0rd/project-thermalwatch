@@ -15,6 +15,7 @@ type ThermalMapProps = {
   showSatellite?: boolean;
   showLandCover?: boolean;
   focusNonce?: number;
+  autoFocusSelected?: boolean;
   boundary?: IndiaBoundary | null;
 };
 
@@ -92,6 +93,7 @@ export function ThermalMap({
   showSatellite = true,
   showLandCover = false,
   focusNonce = 0,
+  autoFocusSelected = false,
   boundary = null,
 }: ThermalMapProps) {
   const isOperational = events.some((event) => event.dataOrigin === "nasa-firms");
@@ -99,6 +101,9 @@ export function ThermalMap({
   const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const coordinateReadoutRef = useRef<HTMLSpanElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
+  const initialEventsRef = useRef(events);
+  const initialSelectedIdRef = useRef(selectedId);
+  const initialAutoFocusRef = useRef(autoFocusSelected);
   const canvasMarkersRef = useRef<CanvasThermalMarker[]>([]);
   const onSelectRef = useRef(onSelect);
   const lastFocusNonceRef = useRef(focusNonce);
@@ -111,14 +116,22 @@ export function ThermalMap({
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
 
+    const initialSelection = initialEventsRef.current.find(
+      (event) => event.id === initialSelectedIdRef.current,
+    );
+    const initialView = initialAutoFocusRef.current && initialSelection
+      ? { center: initialSelection.coordinates, zoom: 9 }
+      : {
+          bounds: [
+            [67.5, 5.5],
+            [98.5, 38.5],
+          ] as [[number, number], [number, number]],
+          fitBoundsOptions: { padding: 24 },
+        };
     const map = new maplibregl.Map({
       container: containerRef.current,
       style: BASE_MAP_STYLE,
-      bounds: [
-        [67.5, 5.5],
-        [98.5, 38.5],
-      ],
-      fitBoundsOptions: { padding: 24 },
+      ...initialView,
       minZoom: 3,
       maxZoom: 14,
       attributionControl: false,

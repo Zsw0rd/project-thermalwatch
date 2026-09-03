@@ -14,6 +14,10 @@ from app.schemas.events import (
     AnalyticsDashboard,
     AnalyticsSummary,
     ArchiveResponse,
+    ClusteringDiagnostics,
+    ClusterReviewCollection,
+    ClusterReviewRecord,
+    ClusterReviewUpdate,
     ConfidenceLabel,
     EventCategory,
     EventCollection,
@@ -37,6 +41,10 @@ from app.services.boundary import (
     BOUNDARY_API_URL,
     administrative_area_context,
     load_india_boundary,
+)
+from app.services.cluster_review import (
+    cluster_review_collection,
+    create_cluster_review,
 )
 from app.services.facility_monitor import build_facility_monitors, facility_monitor_collection
 from app.services.firms import (
@@ -67,6 +75,7 @@ from app.services.temporal import (
     analytics_dashboard,
     build_cluster_summaries,
     cluster_collection,
+    clustering_diagnostics,
     playback_collection,
 )
 
@@ -231,6 +240,15 @@ async def dashboard_analytics() -> AnalyticsDashboard:
     return analytics_dashboard(load_events())
 
 
+@router.get(
+    "/clustering/diagnostics",
+    response_model=ClusteringDiagnostics,
+    tags=["analytics"],
+)
+async def spatial_clustering_diagnostics() -> ClusteringDiagnostics:
+    return clustering_diagnostics(load_events())
+
+
 @router.get("/playback", response_model=PlaybackCollection, tags=["analytics"])
 async def playback() -> PlaybackCollection:
     return playback_collection(load_events())
@@ -265,6 +283,40 @@ async def get_cluster(cluster_id: str) -> ThermalClusterSummary:
     if cluster is None:
         raise HTTPException(status_code=404, detail="Thermal cluster not found")
     return cluster
+
+
+@router.get(
+    "/validation/reviews",
+    response_model=ClusterReviewCollection,
+    tags=["validation"],
+)
+async def validation_reviews() -> ClusterReviewCollection:
+    return cluster_review_collection()
+
+
+@router.post(
+    "/clusters/{cluster_id}/reviews",
+    response_model=ClusterReviewRecord,
+    tags=["validation"],
+)
+def add_cluster_review(
+    cluster_id: str,
+    update: ClusterReviewUpdate,
+) -> ClusterReviewRecord:
+    events = load_events()
+    cluster = next(
+        (item for item in build_cluster_summaries(events) if item.cluster_id == cluster_id),
+        None,
+    )
+    if cluster is None:
+        raise HTTPException(status_code=404, detail="Thermal cluster not found")
+    representative = next(
+        (item for item in events if item.id == cluster.representative_event_id),
+        None,
+    )
+    if representative is None:
+        raise HTTPException(status_code=409, detail="Representative evidence is unavailable")
+    return create_cluster_review(cluster, representative, update)
 
 
 @router.get(
@@ -319,6 +371,7 @@ async def sources() -> dict[str, object]:
             "status": readiness.status,
             "methodology": readiness.methodology,
         },
+        "clustering": clustering_diagnostics(load_events()).model_dump(mode="json"),
         "geography": administrative_area_context().model_dump(),
         "land_cover": {
             "provider": "NASA EOSDIS GIBS",

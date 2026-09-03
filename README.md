@@ -47,6 +47,9 @@ docker compose up --build
 - `GET /api/v1/facility-monitors` and `/facility-monitors/{monitor_id}` — facility-centric observed thermal history;
 - `GET /api/v1/analytics/summary` — snapshot statistics;
 - `GET /api/v1/analytics/dashboard` — temporal activity and persistence analytics;
+- `GET /api/v1/clustering/diagnostics` — DBSCAN density, noise, radius, and legacy-grid comparison;
+- `GET /api/v1/validation/reviews` — append-only local analyst-label audit records;
+- `POST /api/v1/clusters/{cluster_id}/reviews` — snapshot evidence and append an analyst context label;
 - `GET /api/v1/playback` — cumulative daily observation frames;
 - `GET /api/v1/history/readiness` — honest 30/90-day archive coverage telemetry;
 - `GET /api/v1/geography/india` — attributed map-ready India ADM0 boundary;
@@ -65,10 +68,13 @@ docker compose up --build
 - deterministic India ADM0 point-in-polygon containment for both FIRMS detections and OSM facility context;
 - OpenStreetMap proximity context for refineries, flares, power plants, steelmaking sites, and quarries;
 - 2024 MCD12Q1.061 MODIS IGBP context sampled for every retained thermal cell, with an attributed map overlay and deterministic offline fixture;
-- conservative evidence-backed triage and one review alert per approximate 1 km grid cell;
+- deterministic 750 m Haversine DBSCAN source grouping with explicit core/border/noise roles, stable membership-derived IDs, and reviewable noise singletons;
+- cluster-quality diagnostics covering density support, radius distribution, and comparison with the superseded rounded-degree grouping;
+- conservative evidence-backed triage and one review alert per metric cluster;
 - seven-day active-day recurrence, spatial stability, multi-sensor support, and median/MAD anomaly features;
 - category and text filtering;
 - navigable overview, alert triage, evidence-source, and temporal-analytics workspaces;
+- analyst validation workspace with satellite/grid context, a structured review packet, and append-only context labels that never confirm an incident;
 - facility-monitor workspace with site selection, observed FRP history, evidence, and status;
 - historical map playback with daily frames, newly observed cells, and cumulative recurrence;
 - persisted local alert lifecycle for acknowledgement, investigation, closure, and reopening;

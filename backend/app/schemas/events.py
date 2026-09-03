@@ -93,6 +93,11 @@ class NormalizedThermalEvent(BaseModel):
     track_km: float | None = None
     day_night: Literal["D", "N", "U"] = "U"
     cluster_id: str
+    cluster_method: Literal["metric_dbscan_haversine_v1"] = "metric_dbscan_haversine_v1"
+    cluster_role: Literal["core", "border", "noise"]
+    cluster_radius_m: float = Field(ge=0)
+    cluster_epsilon_m: float = Field(gt=0)
+    cluster_min_samples: int = Field(ge=1)
     cluster_detection_count: int = Field(ge=1)
     cluster_sensor_count: int = Field(ge=1)
     recurrence_score: float = Field(ge=0, le=1)
@@ -115,8 +120,8 @@ class NormalizedThermalEvent(BaseModel):
     land_cover: LandCoverContext | None = None
     administrative_area: AdministrativeAreaContext | None = None
     source_attribution: SourceAttribution
-    model_version: str = "rules_temporal_v2"
-    feature_version: str = "firms_osm_modis_igbp_india_adm0_temporal_v3"
+    model_version: str = "rules_temporal_metric_v3"
+    feature_version: str = "firms_osm_modis_igbp_india_adm0_metric_dbscan_v4"
     raw_payload: dict[str, str] = Field(exclude=True)
 
 
@@ -263,6 +268,11 @@ class ThermalClusterSummary(BaseModel):
     representative_event_id: str
     centroid_latitude: float = Field(ge=-90, le=90)
     centroid_longitude: float = Field(ge=-180, le=180)
+    cluster_method: Literal["metric_dbscan_haversine_v1"] = "metric_dbscan_haversine_v1"
+    cluster_radius_m: float = Field(ge=0)
+    cluster_epsilon_m: float = Field(gt=0)
+    cluster_min_samples: int = Field(ge=1)
+    density_role_counts: dict[str, int]
     detection_count: int = Field(ge=1)
     sensor_count: int = Field(ge=1)
     active_days: int = Field(ge=1)
@@ -327,3 +337,68 @@ class AnalyticsDashboard(BaseModel):
     daily_activity: list[DailyAnalyticsPoint]
     top_persistent_sources: list[ThermalClusterSummary]
     methodology: str
+
+
+class ClusteringDiagnostics(BaseModel):
+    generated_at: datetime
+    algorithm: Literal["DBSCAN"] = "DBSCAN"
+    implementation: Literal["metric_dbscan_haversine_v1"] = "metric_dbscan_haversine_v1"
+    distance_metric: Literal["Haversine great-circle distance"] = "Haversine great-circle distance"
+    epsilon_m: float = Field(gt=0)
+    min_samples: int = Field(ge=1)
+    total_events: int = Field(ge=0)
+    total_clusters: int = Field(ge=0)
+    clustered_events: int = Field(ge=0)
+    noise_events: int = Field(ge=0)
+    core_events: int = Field(ge=0)
+    border_events: int = Field(ge=0)
+    multi_event_clusters: int = Field(ge=0)
+    singleton_clusters: int = Field(ge=0)
+    median_cluster_radius_m: float = Field(ge=0)
+    p95_cluster_radius_m: float = Field(ge=0)
+    maximum_cluster_radius_m: float = Field(ge=0)
+    legacy_rounded_grid_cells: int = Field(ge=0)
+    cluster_count_delta_vs_legacy: int
+    methodology: str
+    caveats: list[str]
+
+
+ClusterReviewLabel = Literal[
+    "likely_industrial",
+    "likely_vegetation",
+    "likely_agricultural",
+    "likely_other",
+    "uncertain",
+    "exclude_data_quality",
+]
+
+
+class ClusterReviewUpdate(BaseModel):
+    label: ClusterReviewLabel
+    note: str | None = Field(default=None, max_length=1000)
+    reviewed_by: str = Field(default="local_analyst", min_length=1, max_length=100)
+
+
+class ClusterReviewRecord(BaseModel):
+    review_id: str
+    cluster_id: str
+    representative_event_id: str
+    proposed_category: EventCategory
+    proposed_classification: str
+    analyst_label: ClusterReviewLabel
+    note: str | None = None
+    reviewed_by: str
+    reviewed_at: datetime
+    evidence_snapshot: dict[str, object]
+    model_version: str
+    feature_version: str
+    incident_confirmation: Literal[False] = False
+
+
+class ClusterReviewCollection(BaseModel):
+    generated_at: datetime
+    total: int = Field(ge=0)
+    unique_reviewed_clusters: int = Field(ge=0)
+    label_counts: dict[str, int]
+    methodology: str
+    reviews: list[ClusterReviewRecord]

@@ -28,7 +28,10 @@ def test_events_endpoint_returns_attributed_firms_data() -> None:
     assert len(body["events"]) == 5
     assert body["events"][0]["source_attribution"]["provider"] == "NASA FIRMS"
     assert body["events"][0]["land_cover"]["provider"] == "NASA EOSDIS GIBS"
-    assert body["events"][0]["feature_version"] == "firms_osm_modis_igbp_india_adm0_temporal_v3"
+    assert (
+        body["events"][0]["feature_version"] == "firms_osm_modis_igbp_india_adm0_metric_dbscan_v4"
+    )
+    assert body["events"][0]["cluster_method"] == "metric_dbscan_haversine_v1"
     assert body["events"][0]["administrative_area"]["iso3"] == "IND"
     assert "raw_payload" not in body["events"][0]
 
@@ -110,7 +113,7 @@ def test_seven_day_temporal_cluster_and_history_surfaces() -> None:
     assert event["observation_window_days"] >= 7
     assert event["active_days"] >= 1
     assert event["baseline_frp_mw"] >= 0
-    assert event["model_version"] == "rules_temporal_v2"
+    assert event["model_version"] == "rules_temporal_metric_v3"
 
     history_response = client.get(f"/api/v1/events/{event['id']}/history")
     assert history_response.status_code == 200
@@ -139,6 +142,33 @@ def test_cluster_and_analytics_dashboards_are_evidence_bounded() -> None:
     assert analytics["total_clusters"] > 0
     assert len(analytics["daily_activity"]) >= 7
     assert "no trained ml" in analytics["methodology"].lower()
+
+
+def test_clustering_diagnostics_expose_metric_grouping_and_noise() -> None:
+    response = client.get("/api/v1/clustering/diagnostics")
+    assert response.status_code == 200
+    diagnostics = response.json()
+    assert diagnostics["algorithm"] == "DBSCAN"
+    assert diagnostics["distance_metric"] == "Haversine great-circle distance"
+    assert diagnostics["epsilon_m"] == 750
+    assert diagnostics["min_samples"] == 2
+    assert diagnostics["total_events"] > 0
+    assert (
+        diagnostics["clustered_events"] + diagnostics["noise_events"] == diagnostics["total_events"]
+    )
+    assert diagnostics["total_clusters"] == (
+        diagnostics["multi_event_clusters"] + diagnostics["singleton_clusters"]
+    )
+    assert "do not validate or confirm incidents" in " ".join(diagnostics["caveats"]).lower()
+
+
+def test_validation_collection_is_explicitly_non_confirmatory() -> None:
+    response = client.get("/api/v1/validation/reviews")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == len(payload["reviews"])
+    assert "never assert incident confirmation" in payload["methodology"].lower()
+    assert all(review["incident_confirmation"] is False for review in payload["reviews"])
 
 
 def test_playback_frames_are_temporal_and_evidence_bounded() -> None:

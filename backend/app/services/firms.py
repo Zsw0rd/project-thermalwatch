@@ -37,6 +37,12 @@ from app.services.land_cover import (
     load_land_cover_contexts,
 )
 from app.services.osm import build_facility_index, load_facilities, nearest_facility
+from app.services.spatial_clustering import (
+    CLUSTER_METHOD,
+    SpatialObservation,
+    cluster_observations,
+    haversine_m,
+)
 
 PUBLIC_FEEDS: dict[str, tuple[str, str]] = {
     "J1_VIIRS_C2_South_Asia_24h.csv": (
@@ -127,28 +133,6 @@ def _event_hash(source: str, satellite: str, acquired_at: datetime, lat: float, 
     return hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()
 
 
-def _cluster_key(lat: float, lon: float) -> str:
-    # A deterministic ~1 km grid is an MVP grouping heuristic, not DBSCAN.
-    return f"{round(lat, 2):.2f}:{round(lon, 2):.2f}"
-
-
-def _cluster_id(key: str) -> str:
-    return f"TS-{hashlib.sha1(key.encode('utf-8')).hexdigest()[:10].upper()}"
-
-
-def _haversine_m(lat_a: float, lon_a: float, lat_b: float, lon_b: float) -> float:
-    radius_m = 6_371_008.8
-    lat_a_rad = math.radians(lat_a)
-    lat_b_rad = math.radians(lat_b)
-    delta_lat = math.radians(lat_b - lat_a)
-    delta_lon = math.radians(lon_b - lon_a)
-    value = (
-        math.sin(delta_lat / 2) ** 2
-        + math.cos(lat_a_rad) * math.cos(lat_b_rad) * math.sin(delta_lon / 2) ** 2
-    )
-    return radius_m * 2 * math.atan2(math.sqrt(value), math.sqrt(1 - value))
-
-
 def _severity(frp: float, confidence: ConfidenceLabel) -> str:
     if frp >= 50 and confidence == "high":
         return "critical"
@@ -224,7 +208,7 @@ def alert_previews(events: list[NormalizedThermalEvent]) -> AlertCollection:
             alert_type = "multi_sensor_high_frp"
             title = "High-FRP anomaly observed by multiple VIIRS sources"
             reason = (
-                "Thermal intensity exceeded the review threshold and the grid cell "
+                "Thermal intensity exceeded the review threshold and the metric cluster "
                 "contains observations from multiple VIIRS feeds."
             )
         elif max_frp >= 50:
@@ -250,7 +234,7 @@ def alert_previews(events: list[NormalizedThermalEvent]) -> AlertCollection:
                 frp_mw=max_frp,
                 evidence=[
                     f"Maximum cluster FRP: {max_frp:.2f} MW",
-                    f"VIIRS sources in grid cell: {sensor_count}",
+                    f"VIIRS sources in metric cluster: {sensor_count}",
                     f"Active days: {representative.active_days} / {representative.observation_window_days}",
                     f"Observed median FRP: {representative.baseline_frp_mw:.2f} MW",
                     representative.classification,
@@ -265,7 +249,7 @@ def alert_previews(events: list[NormalizedThermalEvent]) -> AlertCollection:
         generated_at=datetime.now(UTC),
         total=len(alerts),
         methodology=(
-            "One review item per ~1 km grid cell. Rules use FRP, seven-day recurrence, "
+            "One review item per 750 m Haversine DBSCAN cluster. Rules use FRP, short-window recurrence, "
             "robust median/MAD deviation, multi-source co-observation, and conservative "
             "OSM proximity; no alert confirms a fire."
         ),
@@ -360,7 +344,6 @@ def _read_raw_events(settings: Settings) -> list[dict[str, object]]:
                         "day_night": raw.get("daynight", "U")
                         if raw.get("daynight") in {"D", "N"}
                         else "U",
-                        "cluster_key": _cluster_key(lat, lon),
                         "raw_payload": {
                             str(key): str(value) for key, value in raw.items() if key is not None
                         },
@@ -373,6 +356,24 @@ def _read_raw_events(settings: Settings) -> list[dict[str, object]]:
 
 def _build_events(settings: Settings) -> list[NormalizedThermalEvent]:
     raw_events = _read_raw_events(settings)
+    clustering = cluster_observations(
+        [
+            SpatialObservation(
+                id=str(row["id"]),
+                latitude=float(row["latitude"]),
+                longitude=float(row["longitude"]),
+            )
+            for row in raw_events
+        ],
+        epsilon_m=settings.clustering_epsilon_m,
+        min_samples=settings.clustering_min_samples,
+    )
+    for row in raw_events:
+        assignment = clustering.assignments[str(row["id"])]
+        row["cluster_id"] = assignment.cluster_id
+        row["cluster_role"] = assignment.role
+        row["cluster_radius_m"] = assignment.radius_m
+
     administrative_area = (
         administrative_area_context() if load_india_boundary(settings) is not None else None
     )
@@ -381,7 +382,7 @@ def _build_events(settings: Settings) -> list[NormalizedThermalEvent]:
     land_cover_contexts = load_land_cover_contexts(settings)
     clusters: dict[str, list[dict[str, object]]] = defaultdict(list)
     for row in raw_events:
-        clusters[str(row["cluster_key"])].append(row)
+        clusters[str(row["cluster_id"])].append(row)
 
     events: list[NormalizedThermalEvent] = []
     confidence_scores = {"high": 0.9, "nominal": 0.72, "low": 0.45, "unknown": 0.35}
@@ -396,7 +397,7 @@ def _build_events(settings: Settings) -> list[NormalizedThermalEvent]:
     observation_window_days = max(1, (window_end.date() - window_start.date()).days + 1)
 
     for row in raw_events:
-        cluster = clusters[str(row["cluster_key"])]
+        cluster = clusters[str(row["cluster_id"])]
         sensor_count = len({str(item["source"]) for item in cluster})
         detection_count = len(cluster)
         active_days = len({item["acquired_at"].date() for item in cluster})
@@ -409,7 +410,7 @@ def _build_events(settings: Settings) -> list[NormalizedThermalEvent]:
         centroid_longitude = sum(float(item["longitude"]) for item in cluster) / detection_count
         spatial_spread_m = max(
             (
-                _haversine_m(
+                haversine_m(
                     centroid_latitude,
                     centroid_longitude,
                     float(item["latitude"]),
@@ -525,7 +526,7 @@ def _build_events(settings: Settings) -> list[NormalizedThermalEvent]:
         explanation = [
             f"NASA FIRMS confidence: {confidence}",
             f"FRP: {float(row['frp_mw']):.2f} MW",
-            f"{detection_count} detection(s) in the same ~1 km grid cell",
+            f"{detection_count} detection(s) in the same {settings.clustering_epsilon_m:.0f} m Haversine DBSCAN cluster",
             f"Observed on {active_days} of {observation_window_days} day(s)",
             f"Observed by {sensor_count} VIIRS source(s) in the evidence window",
             f"Median observed FRP baseline: {baseline_frp:.2f} MW",
@@ -550,7 +551,7 @@ def _build_events(settings: Settings) -> list[NormalizedThermalEvent]:
                 "Annual land cover is contextual evidence and does not confirm the anomaly source"
             )
         else:
-            explanation.append("Land-cover context is unavailable for this thermal cell")
+            explanation.append("Land-cover context is unavailable for this thermal location")
 
         events.append(
             NormalizedThermalEvent(
@@ -568,7 +569,12 @@ def _build_events(settings: Settings) -> list[NormalizedThermalEvent]:
                 scan_km=row["scan_km"],
                 track_km=row["track_km"],
                 day_night=row["day_night"],
-                cluster_id=_cluster_id(str(row["cluster_key"])),
+                cluster_id=str(row["cluster_id"]),
+                cluster_method=CLUSTER_METHOD,
+                cluster_role=row["cluster_role"],
+                cluster_radius_m=round(float(row["cluster_radius_m"]), 2),
+                cluster_epsilon_m=settings.clustering_epsilon_m,
+                cluster_min_samples=settings.clustering_min_samples,
                 cluster_detection_count=detection_count,
                 cluster_sensor_count=sensor_count,
                 recurrence_score=round(recurrence_score, 3),
@@ -587,9 +593,9 @@ def _build_events(settings: Settings) -> list[NormalizedThermalEvent]:
                 severity=_severity(float(row["frp_mw"]), row["confidence"]),
                 explanation=explanation,
                 context_status=(
-                    "FIRMS_OSM_MODIS_IGBP_AND_7D_TEMPORAL"
+                    "FIRMS_OSM_MODIS_IGBP_METRIC_CLUSTER_AND_SHORT_TEMPORAL"
                     if facilities and land_cover_contexts
-                    else "FIRMS_AND_7D_TEMPORAL_PARTIAL_CONTEXT"
+                    else "FIRMS_METRIC_CLUSTER_AND_SHORT_TEMPORAL_PARTIAL_CONTEXT"
                 ),
                 nearest_facility=facility_context,
                 land_cover=land_cover_context,

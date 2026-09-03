@@ -461,3 +461,51 @@ Advance the next backend and web stages together: preserve every successful FIRM
 - The boundary represents 2014 and is an open administrative geometry, not a territorial claim or authoritative survey boundary.
 - OSM ways and relations still use representative points, so national containment and facility distance can differ from full-polygon results near borders or large sites.
 - The next intelligence stage is metric spatial clustering and empirical validation against reviewed facilities before approximate cells can be treated as source-level entities.
+
+## 2026-09-03 — Metric clustering diagnostics and analyst validation stage
+
+### Objective
+
+Replace the rounded-degree analytical grouping with deterministic metric clustering, make grouping quality inspectable, and add a web-first human review surface that can begin building a versioned validation set without claiming incident confirmation.
+
+### Areas touched
+
+- backend clustering configuration, normalized-event/cluster/diagnostic/review contracts, FIRMS pipeline, temporal aggregation, API routes, and source registry
+- new metric clustering and append-only cluster-review services
+- backend clustering, pipeline, API, and review-audit tests
+- frontend API adapter/types, Analytics diagnostics, `Validate` navigation/workspace, selected-cluster map focus, and responsive operational styling
+- environment template, README, research/reference glossary, and this living log
+
+### Decisions and important implementation details
+
+- Replaced two-decimal latitude/longitude grouping with deterministic DBSCAN over exact Haversine distances. The current starting configuration is a 750 m epsilon and two observations including self for a core point; both values remain explicit engineering assumptions.
+- Added a conservative spatial bucket index before exact distance checks, avoiding a full all-pairs scan while ensuring candidate neighbouring buckets are searched across cell boundaries. Sorted event IDs make expansion and ambiguous-border assignment reproducible for identical evidence.
+- Preserved DBSCAN noise as explicit singleton analytical clusters with role `noise`; these points remain available to map, playback, triage, and review instead of being dropped. Density-supported events expose `core` or `border` roles, shared cluster radius, epsilon, minimum density, and clustering method.
+- Derived cluster IDs from the sorted member event IDs. This makes identical inputs reproducible but intentionally exposes a documented limitation: IDs can change when later archives alter membership.
+- Bumped the rule contract to `rules_temporal_metric_v3` and the feature contract to `firms_osm_modis_igbp_india_adm0_metric_dbscan_v4`; preserved raw FIRMS fields server-side.
+- Added `/clustering/diagnostics` with density/noise counts, core/border counts, multi-event/singleton counts, supported-cluster radius distribution, and a direct comparison to the superseded rounded grid.
+- Added append-only JSON review-audit storage in the ignored cache directory plus `GET /validation/reviews` and `POST /clusters/{cluster_id}/reviews`. Every record snapshots the visible evidence, proposed category/classification, model/feature versions, analyst label/note/identity, and UTC time; `incident_confirmation` is structurally fixed to `false`.
+- Added a `Validate` workspace with ranked clusters, a selected-cluster satellite/grid map, density/FRP/recurrence metrics, source-backed evidence packet, six bounded context labels, notes, and prior-review display. The selected candidate now opens at its source coordinates rather than the national map extent.
+- Kept the eight-date history explicitly short-window and non-seasonal. No classifier training, precision/recall, confusion matrix, or accuracy claim was introduced without reviewed labels.
+
+### Verification performed and result
+
+- Current pinned evidence: 1,566 detections grouped into 777 analytical clusters versus 922 rounded-grid cells. DBSCAN produced 256 density-supported multi-event clusters containing 1,045 core events and retained 521 noise singletons; no border events occur under the current two-sample threshold.
+- Supported-cluster radii are 190.89 m median, 724.97 m at P95, and 1,849.78 m maximum. The maximum can exceed epsilon through DBSCAN density-connected chains and is disclosed in API caveats.
+- Current downstream outputs are 14 persistent candidates, 71 recurring candidates, and 14 review alerts.
+- `.venv\Scripts\python.exe -m ruff check app tests alembic` — passed.
+- `.venv\Scripts\python.exe -m pytest -q` — 27 tests passed, including Haversine plausibility, input-order determinism, core/border/noise behavior, singleton retention, diagnostics invariants, and append-only evidence snapshots; one upstream Starlette/httpx deprecation warning remains.
+- `npm run lint` — passed.
+- `npm run build` — passed with strict TypeScript and Next.js static generation.
+- `docker compose config --quiet` — passed.
+- Live browser Analytics QA — rendered 777 clusters, density/noise diagnostics, the 725 m rounded P95 and 191 m rounded median, the -145 cluster delta versus 922 legacy cells, and the unchanged insufficient-history disclosure.
+- Live browser Validate QA — rendered 100 ranked review candidates; the first cluster displayed 17 detections from three VIIRS sources, a 665 m radius, FRP metrics, density roles, attributed satellite/grid map, evidence packet, six analyst labels, and the non-confirmation boundary. Initial map focus resolved to the selected 25.94°N, 72.19°E evidence location.
+
+### Known limitations or next concrete task
+
+- The 750 m/two-sample configuration needs a reviewed, spatially separated validation set before it can be called calibrated. The new workspace enables collection, but it begins with zero analyst records.
+- With `min_samples=2`, every member of a supported cluster is a core point, so border-role diagnostics remain zero. Parameter sweeps should compare two- and three-sample density requirements by sensor, geography, and label quality.
+- DBSCAN density chains can produce clusters wider than epsilon; the current maximum is about 1.85 km. Add diameter/elongation diagnostics and split-review support before treating every cluster as one physical source.
+- Membership-derived IDs can change as history accumulates. Production review persistence needs cluster-lineage reconciliation, authenticated users, optimistic concurrency, and PostGIS audit tables.
+- Review labels are local context assessments, not ground truth. The next evaluation stage is a spatially separated reviewed subset, label-agreement checks, parameter sensitivity analysis, and only then a rules baseline/confusion matrix.
+- The archive still has eight observed dates, so 30/90-day and seasonal modeling remain blocked by evidence coverage rather than implementation.

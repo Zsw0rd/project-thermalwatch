@@ -93,6 +93,16 @@ This file is the durable research notebook for the project. Verified facts, engi
 - A deterministic ray-casting point-in-polygon test, including polygon holes and boundary segments, now clips both FIRMS points and OSM representative points after the broader source retrieval. Known checks retain New Delhi, Bengaluru, and Port Blair while excluding Lahore, Dhaka, and Colombo.
 - After India ADM0 containment, the retained source window contains 1,566 unique FIRMS detections in 922 approximate cells and 14,543 supported OSM representative points. These are reproducible properties of the pinned 2026-09-02 snapshots and boundary, not stable national totals or completeness measures.
 
+## 2026-09-03 metric clustering and analyst-validation research
+
+- DBSCAN was introduced as a density-based method that discovers spatial clusters of arbitrary shape and distinguishes low-density noise without requiring the number of clusters in advance. Its two primary density parameters are a neighbourhood radius (`Eps`) and minimum neighbourhood cardinality (`MinPts`). [Ester, Kriegel, Sander, and Xu, “A Density-Based Algorithm for Discovering Clusters in Large Spatial Databases with Noise” (KDD-96)](https://file.biolab.si/papers/1996-DBSCAN-KDD.pdf)
+- PostGIS exposes the same model through `ST_ClusterDBSCAN` as a two-dimensional window function. Its documentation defines core, border, and noise geometries, returns `NULL` for noise, and warns that ambiguous border assignment can vary unless window ordering is specified. This is the intended production-database equivalent of the current typed Python service. [PostGIS `ST_ClusterDBSCAN` documentation](https://postgis.net/docs/manual-3.3/ST_ClusterDBSCAN.html)
+- **Engineering decision:** AegisFire operational grouping now uses deterministic ID ordering, exact Haversine neighbour checks, a 750 m epsilon, and `min_samples=2`. These values fall inside the roadmap’s initial 0.5–1.0 km range but are not scientifically validated thresholds.
+- **Engineering decision:** DBSCAN noise is preserved as a singleton analytical cluster with the explicit role `noise`, rather than being discarded. This differs from PostGIS’s `NULL` noise return and ensures every raw FIRMS observation remains available to map, playback, and human review.
+- **Engineering decision:** cluster IDs are hashes of sorted member event IDs. They are reproducible for identical evidence, but can change when later archive snapshots join, split, or extend a cluster. Review records therefore snapshot the evidence and feature/model versions visible at annotation time.
+- Current pinned evidence produces 777 metric analytical clusters from 1,566 deduplicated detections: 256 multi-event density-supported clusters and 521 noise singletons. The superseded rounded-degree method produced 922 cells. These are reproducible engineering diagnostics for the current snapshot, not accuracy metrics or source-count truth.
+- The analyst validation surface stores append-only context labels (`likely_industrial`, `likely_vegetation`, `likely_agricultural`, `likely_other`, `uncertain`, or `exclude_data_quality`) with evidence snapshots. Labels remain analyst assessments and explicitly never confirm a fire, accident, causation, or responsible facility.
+
 ### Web and geospatial platform
 
 - [Next.js App Router](https://nextjs.org/docs/app) — web application routing and rendering model.
@@ -106,7 +116,7 @@ This file is the durable research notebook for the project. Verified facts, engi
 These values are starting points and must be validated with real data:
 
 - VIIRS 375 m is the primary MVP thermal source; MODIS is a later secondary source.
-- Spatial recurrence will initially be evaluated within approximately 0.5–1.0 km, then tuned by sensor and validation region.
+- **Superseded for operational API mode:** spatial recurrence was planned within approximately 0.5–1.0 km. It is now implemented as 750 m Haversine DBSCAN with a two-point density threshold, pending tuning by sensor and reviewed region.
 - The MVP taxonomy is `industrial`, `vegetation`, and `uncertain`; the UI can demonstrate more descriptive evidence-backed subtypes.
 - **Superseded for operational API mode:** the operational taxonomy now includes `industrial`, `vegetation`, `agricultural`, and `unknown`. Vegetation/agricultural values remain weak candidate labels derived partly from annual MODIS IGBP context, not ground truth.
 - Persistence combines recurrence, active days, spatial stability, and day/night consistency. Exact weights remain configurable.
@@ -117,7 +127,7 @@ These values are starting points and must be validated with real data:
 - Current alert thresholds are engineering assumptions: FRP >= 20 MW with industrial context or multi-source co-observation, otherwise FRP >= 50 MW. Alerts are triage items, not incident claims.
 - Current persistence weights are engineering assumptions: 45% active-day ratio, 20% detection density, 20% spatial stability, and 15% multi-sensor support. A persistent candidate additionally requires at least four active days in a window of at least five days and score >= 0.65.
 - Facility monitors include only observations already promoted by the conservative industrial-context proximity rule. Their status describes observed thermal evidence near an OSM feature; it is not a facility operating-state claim.
-- Playback's `active_persistent_cells` is calculated as-of each frame from approximate cells observed on at least four distinct dates. It deliberately does not use future frames, but the spatial cell remains an engineering heuristic.
+- **Superseded grouping detail:** playback's `active_persistent_cells` was originally calculated from rounded-degree cells. It is now calculated as-of each frame from metric DBSCAN clusters observed on at least four distinct dates; both the four-date threshold and clustering parameters remain engineering assumptions.
 - Alert lifecycle state is analyst workflow metadata, not additional physical evidence. Acknowledging, investigating, or closing an item must never increase classification confidence.
 
 ## Glossary
@@ -154,6 +164,8 @@ A thermal anomaly whose representative coordinate is within the configured dista
 
 Multiple detections or sensor feeds associated with the same approximate grid cell in the current source window. Co-observation can corroborate that a thermal signal was recorded, but it is not the same as multi-day persistence.
 
+**Superseded grouping detail (2026-09-03):** operational co-observation is now evaluated inside a 750 m Haversine DBSCAN analytical cluster rather than a rounded-degree cell. The evidentiary boundary is unchanged: co-observation supports sensor corroboration, not source identity or incident confirmation.
+
 ### Alert acknowledgement workflow
 
 The human-review state attached to a generated alert: requires review, acknowledged, investigating, or closed. It records workflow progress only and does not validate the alert's interpretation.
@@ -169,6 +181,36 @@ The coordinate system used to locate geometries. Geographic latitude/longitude c
 ### DBSCAN
 
 Density-Based Spatial Clustering of Applications with Noise. A clustering method that can group nearby detections without choosing the number of clusters in advance and can leave isolated observations as noise.
+
+Implementation update (2026-09-03, engineering decision): AegisFire performs deterministic DBSCAN with Haversine distances, a 750 m epsilon, and two-point minimum density. It retains noise as labelled singletons so no source record disappears from review.
+
+### Core point
+
+In DBSCAN, an observation whose epsilon neighbourhood contains at least the configured minimum number of observations, including itself. Core points can expand a density-connected cluster.
+
+### Border point
+
+In DBSCAN, a non-core observation that falls within the epsilon neighbourhood of a core point. A border point belongs to a supported cluster but cannot expand it on its own.
+
+### Epsilon (`eps`)
+
+The maximum neighbour distance used by DBSCAN. AegisFire currently uses 750 m great-circle distance as an unvalidated engineering starting point.
+
+### Minimum samples (`MinPts` / `min_samples`)
+
+The number of observations, including the observation itself, required for a DBSCAN core point. AegisFire currently uses two so repeat co-locations become density-supported while isolated detections remain explicit noise.
+
+### Noise observation
+
+A DBSCAN observation that is not density-reachable from a core point. AegisFire retains it as a singleton analytical cluster with role `noise`; retention does not turn it into a supported physical source.
+
+### Analyst validation label
+
+A human assessment of the most supportable source-context category for a cluster based on the displayed evidence packet. It is useful for later evaluation or supervised learning, but it is not incident confirmation or causation evidence.
+
+### Evidence snapshot
+
+An immutable copy of the metrics, context, provenance, and model/feature versions visible when an analyst recorded a label. It keeps the audit interpretable even if future ingestion changes the live cluster membership or classification.
 
 ### Evidence graph
 
@@ -253,6 +295,8 @@ A configurable score representing repeated, spatially stable thermal activity ov
 ### Persistent-source candidate
 
 An approximate spatial cell that crosses the configured active-day and persistence-score thresholds. It prioritizes repeated thermal activity for review; it does not prove that one physical source caused every observation or that an incident occurred.
+
+Implementation update (2026-09-03): the “approximate spatial cell” in this definition is now a metric DBSCAN analytical cluster rather than a rounded latitude/longitude cell.
 
 ### Representative geometry center
 

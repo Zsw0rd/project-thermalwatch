@@ -43,9 +43,12 @@ import {
   YAxis,
 } from "recharts";
 import { CLASS_META, DEMO_EVENTS } from "@/lib/demo-data";
-import { fetchOperationalEvents, updateAlertReview } from "@/lib/api";
+import { createClusterReview, fetchOperationalEvents, updateAlertReview } from "@/lib/api";
 import type {
   AnalyticsDashboard,
+  ClusteringDiagnostics,
+  ClusterReview,
+  ClusterReviewLabel,
   DashboardDataset,
   EventClass,
   FacilityMonitor,
@@ -68,6 +71,7 @@ const NAV_ITEMS: { label: string; icon: LucideIcon }[] = [
   { label: "Playback", icon: Play },
   { label: "Sources", icon: Target },
   { label: "Analytics", icon: Activity },
+  { label: "Validate", icon: CheckCircle2 },
 ];
 
 const FILTERS: { id: Filter; label: string }[] = [
@@ -589,10 +593,12 @@ function AnalyticsWorkspace({
   analytics,
   clusters,
   historyReadiness,
+  clusteringDiagnostics,
 }: {
   analytics: AnalyticsDashboard | null;
   clusters: ThermalClusterSummary[];
   historyReadiness: HistoryReadiness | null;
+  clusteringDiagnostics: ClusteringDiagnostics | null;
 }) {
   if (!analytics) {
     return <section className="stage-workspace grid place-items-center text-sm text-slate-500">Analytics are unavailable in simulation mode.</section>;
@@ -630,6 +636,35 @@ function AnalyticsWorkspace({
             </div>
           </div>
           <small>{historyReadiness.status.replaceAll("_", " ")} · Coverage telemetry only; no learned baseline is claimed yet.</small>
+        </section>
+      )}
+      {clusteringDiagnostics && (
+        <section className="clustering-diagnostics">
+          <div>
+            <p className="eyebrow">Spatial grouping diagnostics</p>
+            <strong>{clusteringDiagnostics.algorithm} · {clusteringDiagnostics.distanceMetric}</strong>
+            <span>{clusteringDiagnostics.epsilonM.toFixed(0)} m epsilon · {clusteringDiagnostics.minSamples} point minimum density</span>
+          </div>
+          <div>
+            <span>Density-supported</span>
+            <strong>{clusteringDiagnostics.clusteredEvents.toLocaleString("en-IN")}</strong>
+            <small>{clusteringDiagnostics.multiEventClusters} multi-event clusters</small>
+          </div>
+          <div>
+            <span>Explicit noise</span>
+            <strong>{clusteringDiagnostics.noiseEvents.toLocaleString("en-IN")}</strong>
+            <small>Retained as reviewable singletons</small>
+          </div>
+          <div>
+            <span>Cluster radius P95</span>
+            <strong>{clusteringDiagnostics.p95ClusterRadiusM.toFixed(0)} m</strong>
+            <small>Median {clusteringDiagnostics.medianClusterRadiusM.toFixed(0)} m</small>
+          </div>
+          <div>
+            <span>vs rounded grid</span>
+            <strong>{clusteringDiagnostics.clusterCountDeltaVsLegacy >= 0 ? "+" : ""}{clusteringDiagnostics.clusterCountDeltaVsLegacy}</strong>
+            <small>{clusteringDiagnostics.legacyRoundedGridCells.toLocaleString("en-IN")} legacy cells</small>
+          </div>
         </section>
       )}
       <div className="analytics-grid">
@@ -673,6 +708,166 @@ function AnalyticsWorkspace({
           </div>
         ))}
       </section>
+    </section>
+  );
+}
+
+const REVIEW_LABELS: ClusterReviewLabel[] = [
+  "likely_industrial",
+  "likely_vegetation",
+  "likely_agricultural",
+  "likely_other",
+  "uncertain",
+  "exclude_data_quality",
+];
+
+function ValidationWorkspace({
+  clusters,
+  reviews,
+  events,
+  facilities,
+  boundary,
+  diagnostics,
+  onReview,
+}: {
+  clusters: ThermalClusterSummary[];
+  reviews: ClusterReview[];
+  events: ThermalEvent[];
+  facilities: IndustrialFacility[];
+  boundary: IndiaBoundary | null;
+  diagnostics: ClusteringDiagnostics | null;
+  onReview: (clusterId: string, label: ClusterReviewLabel, note: string) => Promise<void>;
+}) {
+  const [selectedClusterId, setSelectedClusterId] = useState("");
+  const [label, setLabel] = useState<ClusterReviewLabel>("uncertain");
+  const [note, setNote] = useState("");
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const effectiveClusterId = clusters.some((cluster) => cluster.clusterId === selectedClusterId)
+    ? selectedClusterId
+    : (clusters[0]?.clusterId ?? "");
+  const selected = clusters.find((cluster) => cluster.clusterId === effectiveClusterId);
+  const latestReview = reviews.find((review) => review.clusterId === effectiveClusterId);
+  const reviewCount = reviews.filter((review) => review.clusterId === effectiveClusterId).length;
+  const clusterEvents = events.filter((event) => event.clusterId === effectiveClusterId);
+  const mapEvent = clusterEvents.find((event) => event.id === selected?.representativeEventId)
+    ?? clusterEvents[0];
+
+  if (!selected) {
+    return <section className="stage-workspace grid place-items-center text-sm text-slate-500">Validation candidates are unavailable in simulation mode.</section>;
+  }
+
+  const submitReview = async () => {
+    setSaveState("saving");
+    try {
+      await onReview(selected.clusterId, label, note);
+      setNote("");
+      setSaveState("saved");
+    } catch {
+      setSaveState("error");
+    }
+  };
+
+  return (
+    <section className="stage-workspace validation-stage">
+      <div className="stage-header">
+        <div><p className="eyebrow">Human-in-the-loop evidence review</p><h2>Cluster validation workspace</h2></div>
+        <span className="stage-badge">{reviews.length} audit record{reviews.length === 1 ? "" : "s"} · no incident confirmation</span>
+      </div>
+      <div className="validation-layout">
+        <aside className="validation-queue custom-scrollbar">
+          <p className="eyebrow">Ranked candidates · {clusters.length}</p>
+          {clusters.map((cluster) => {
+            const reviewed = reviews.some((review) => review.clusterId === cluster.clusterId);
+            return (
+              <button
+                key={cluster.clusterId}
+                type="button"
+                className={cluster.clusterId === effectiveClusterId ? "is-selected" : ""}
+                onClick={() => {
+                  setSelectedClusterId(cluster.clusterId);
+                  setSaveState("idle");
+                }}
+              >
+                <span><b>{cluster.facilityName ?? cluster.classification}</b><small>{cluster.clusterId} · {cluster.activeDays}/{cluster.observationWindowDays} active days</small></span>
+                <span><strong>{Math.round(cluster.persistenceScore * 100)}%</strong><small>{reviewed ? "reviewed" : cluster.persistenceLabel.replaceAll("_", " ")}</small></span>
+              </button>
+            );
+          })}
+        </aside>
+
+        <div className="validation-evidence">
+          <div className="validation-title">
+            <div>
+              <p className="eyebrow">Proposed machine context</p>
+              <h3>{selected.classification}</h3>
+              <span>{selected.clusterId} · {selected.coordinates[1].toFixed(5)}, {selected.coordinates[0].toFixed(5)}</span>
+            </div>
+            <div className="validation-confidence">
+              <span>{selected.persistenceLabel.replaceAll("_", " ")}</span>
+              <strong>{Math.round(selected.persistenceScore * 100)}%</strong>
+            </div>
+          </div>
+
+          <div className="validation-metrics">
+            <div><span>Detections</span><strong>{selected.detectionCount}</strong><small>{selected.sensorCount} VIIRS source(s)</small></div>
+            <div><span>Metric radius</span><strong>{selected.clusterRadiusM.toFixed(0)} m</strong><small>{selected.clusterEpsilonM.toFixed(0)} m DBSCAN epsilon</small></div>
+            <div><span>Observed FRP</span><strong>{selected.medianFrp.toFixed(1)} MW</strong><small>{selected.maxFrp.toFixed(1)} MW maximum</small></div>
+            <div><span>Density roles</span><strong>{selected.densityRoleCounts.core ?? 0} core</strong><small>{selected.densityRoleCounts.border ?? 0} border · {selected.densityRoleCounts.noise ?? 0} noise</small></div>
+          </div>
+
+          <div className="validation-main-grid">
+            <div className="validation-map">
+              {mapEvent ? (
+                <ThermalMap
+                  events={clusterEvents}
+                  selectedId={mapEvent.id}
+                  onSelect={() => undefined}
+                  facilities={facilities}
+                  showGrid
+                  showSatellite
+                  showLandCover
+                  autoFocusSelected
+                  focusNonce={clusters.findIndex((cluster) => cluster.clusterId === effectiveClusterId) + 1}
+                  boundary={boundary}
+                />
+              ) : <div className="grid h-full place-items-center text-xs text-slate-600">Representative map evidence unavailable.</div>}
+            </div>
+            <section className="validation-facts">
+              <p className="eyebrow">Review packet</p>
+              {selected.evidence.map((item) => <p key={item}><ShieldCheck size={11} /> {item}</p>)}
+              <small>{diagnostics?.methodology ?? "Metric clustering diagnostics unavailable."}</small>
+            </section>
+          </div>
+        </div>
+
+        <aside className="validation-form">
+          <p className="eyebrow">Analyst context label</p>
+          <h3>Record assessment</h3>
+          <p className="validation-boundary">Choose the most supportable context label. This annotation does not confirm a fire, accident, or responsible facility.</p>
+          <div className="validation-labels">
+            {REVIEW_LABELS.map((item) => (
+              <button key={item} type="button" aria-pressed={label === item} onClick={() => { setLabel(item); setSaveState("idle"); }}>
+                {item.replaceAll("_", " ")}
+              </button>
+            ))}
+          </div>
+          <label htmlFor="validation-note">Evidence note</label>
+          <textarea id="validation-note" value={note} onChange={(event) => setNote(event.target.value)} maxLength={1000} placeholder="Record the evidence supporting or weakening this label…" />
+          <button type="button" className="validation-submit" disabled={saveState === "saving"} onClick={submitReview}>
+            <CheckCircle2 size={13} /> {saveState === "saving" ? "Saving audit record…" : "Append review record"}
+          </button>
+          {saveState === "saved" && <p className="validation-success">Review appended to the local validation set.</p>}
+          {saveState === "error" && <p className="validation-error">Review could not be saved. Check the local API.</p>}
+          {latestReview && (
+            <div className="validation-latest">
+              <span>Latest of {reviewCount} review{reviewCount === 1 ? "" : "s"}</span>
+              <strong>{latestReview.analystLabel.replaceAll("_", " ")}</strong>
+              <small>{new Date(latestReview.reviewedAt).toLocaleString("en-IN")} · {latestReview.reviewedBy}</small>
+              {latestReview.note && <p>{latestReview.note}</p>}
+            </div>
+          )}
+        </aside>
+      </div>
     </section>
   );
 }
@@ -770,6 +965,17 @@ export function CommandCenter() {
     });
   };
 
+  const handleClusterReview = async (
+    clusterId: string,
+    label: ClusterReviewLabel,
+    note: string,
+  ) => {
+    const review = await createClusterReview(clusterId, label, note);
+    setOperationalDataset((current) => current
+      ? { ...current, clusterReviews: [review, ...current.clusterReviews] }
+      : current);
+  };
+
   const viewCopy = {
     Overview: ["National operating picture", "Thermal intelligence command center", "Detection · context · persistence · classification · explanation"],
     Events: ["Evidence-led triage", "Alert and event review", "Prioritized candidates · reason codes · human validation"],
@@ -777,6 +983,7 @@ export function CommandCenter() {
     Playback: ["Historical reconstruction", "Thermal activity playback", "Daily frames · newly observed cells · cumulative recurrence"],
     Sources: ["Provenance control", "Evidence source registry", "Readiness · attribution · known boundaries"],
     Analytics: ["Temporal analysis", "Persistence and anomaly workspace", "Observed recurrence · robust deviation · candidate ranking"],
+    Validate: ["Human-in-the-loop review", "Cluster validation workspace", "Satellite context · metric diagnostics · append-only analyst labels"],
   }[nav] ?? ["National operating picture", "Thermal intelligence command center", "Detection · context · persistence · classification · explanation"];
 
   const generateBrief = () => {
@@ -879,7 +1086,7 @@ export function CommandCenter() {
           <MetricCard label="Thermal detections" value={datasetTotal.toLocaleString("en-IN")} detail={`${activeEvents.length} loaded on this map`} icon={Flame} tone="#ff6b35" />
           <MetricCard label="High-FRP signals" value={String(highFrpCount).padStart(2, "0")} detail="FRP ≥ 20 MW · not incident confirmation" icon={Gauge} tone="#f7bf4f" />
           <MetricCard label="Corroborated cells" value={String(corroboratedCount).padStart(2, "0")} detail="Observed by multiple VIIRS sources" icon={Radar} tone="#7ed957" />
-          <MetricCard label="Priority review" value={String(priorityCount).padStart(2, "0")} detail="One triage item per grid cell" icon={AlertTriangle} tone="#b28cff" />
+          <MetricCard label="Priority review" value={String(priorityCount).padStart(2, "0")} detail="One triage item per metric cluster" icon={AlertTriangle} tone="#b28cff" />
         </div>
 
         {nav === "Overview" && <div className="workspace-grid">
@@ -965,6 +1172,18 @@ export function CommandCenter() {
             analytics={operationalDataset?.analytics ?? null}
             clusters={operationalDataset?.clusters ?? []}
             historyReadiness={operationalDataset?.historyReadiness ?? null}
+            clusteringDiagnostics={operationalDataset?.clusteringDiagnostics ?? null}
+          />
+        )}
+        {nav === "Validate" && (
+          <ValidationWorkspace
+            clusters={operationalDataset?.clusters ?? []}
+            reviews={operationalDataset?.clusterReviews ?? []}
+            events={operationalDataset?.historicalEvents ?? []}
+            facilities={operationalDataset?.facilities ?? []}
+            boundary={operationalDataset?.boundary ?? null}
+            diagnostics={operationalDataset?.clusteringDiagnostics ?? null}
+            onReview={handleClusterReview}
           />
         )}
 
