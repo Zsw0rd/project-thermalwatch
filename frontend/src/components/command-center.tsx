@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useId, useMemo, useState, useSyncExternalStore, type CSSProperties } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -20,6 +20,9 @@ import {
   Layers3,
   Map as MapIcon,
   Menu,
+  Moon,
+  PanelLeftClose,
+  PanelLeftOpen,
   Pause,
   Play,
   Radar,
@@ -28,8 +31,8 @@ import {
   ShieldCheck,
   SkipBack,
   SkipForward,
-  SlidersHorizontal,
   Sparkles,
+  Sun,
   Target,
   Trees,
   X,
@@ -82,18 +85,37 @@ import type {
 import { ThermalMap } from "./thermal-map";
 
 type Filter = "all" | EventClass;
+type WorkspaceName = "Overview" | "Events" | "Monitor" | "Playback" | "Discover" | "Analytics" | "Validate" | "Models" | "Sources";
+type ThemeMode = "dark" | "light";
 
-const NAV_ITEMS: { label: string; icon: LucideIcon }[] = [
-  { label: "Overview", icon: Radar },
-  { label: "Events", icon: Flame },
-  { label: "Monitor", icon: Factory },
-  { label: "Playback", icon: Play },
-  { label: "Discover", icon: Fingerprint },
-  { label: "Sources", icon: Target },
-  { label: "Analytics", icon: Activity },
-  { label: "Validate", icon: CheckCircle2 },
-  { label: "Models", icon: Cpu },
+const NAV_GROUPS: { label: string; items: { label: WorkspaceName; icon: LucideIcon; description: string }[] }[] = [
+  {
+    label: "Operate",
+    items: [
+      { label: "Overview", icon: Radar, description: "Live operating picture" },
+      { label: "Events", icon: Flame, description: "Evidence-led triage" },
+      { label: "Monitor", icon: Factory, description: "Facility watchlists" },
+    ],
+  },
+  {
+    label: "Investigate",
+    items: [
+      { label: "Playback", icon: Play, description: "Historical reconstruction" },
+      { label: "Discover", icon: Fingerprint, description: "Persistent unknowns" },
+      { label: "Analytics", icon: Activity, description: "Pattern analysis" },
+    ],
+  },
+  {
+    label: "Govern",
+    items: [
+      { label: "Validate", icon: CheckCircle2, description: "Analyst review" },
+      { label: "Models", icon: Cpu, description: "Readiness and registry" },
+      { label: "Sources", icon: Target, description: "Provenance control" },
+    ],
+  },
 ];
+
+const NAV_ITEMS = NAV_GROUPS.flatMap((group) => group.items);
 
 const FILTERS: { id: Filter; label: string }[] = [
   { id: "all", label: "All intelligence" },
@@ -112,13 +134,34 @@ const severityClass = (severity: ThermalEvent["severity"]) =>
   })[severity];
 
 const subscribeToDesktopViewport = (callback: () => void) => {
-  const mediaQuery = window.matchMedia("(min-width: 1120px)");
+  const mediaQuery = window.matchMedia("(min-width: 1440px)");
   mediaQuery.addEventListener("change", callback);
   return () => mediaQuery.removeEventListener("change", callback);
 };
 
-const getDesktopSnapshot = () => window.matchMedia("(min-width: 1120px)").matches;
+const getDesktopSnapshot = () => window.matchMedia("(min-width: 1440px)").matches;
 const getServerDesktopSnapshot = () => false;
+const THEME_CHANGE_EVENT = "aegisfire-theme-change";
+
+const getThemeSnapshot = (): ThemeMode => {
+  const savedTheme = window.localStorage.getItem("aegisfire-theme");
+  if (savedTheme === "light" || savedTheme === "dark") return savedTheme;
+  return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+};
+
+const getServerThemeSnapshot = (): ThemeMode => "dark";
+
+const subscribeToTheme = (callback: () => void) => {
+  const mediaQuery = window.matchMedia("(prefers-color-scheme: light)");
+  window.addEventListener(THEME_CHANGE_EVENT, callback);
+  window.addEventListener("storage", callback);
+  mediaQuery.addEventListener("change", callback);
+  return () => {
+    window.removeEventListener(THEME_CHANGE_EVENT, callback);
+    window.removeEventListener("storage", callback);
+    mediaQuery.removeEventListener("change", callback);
+  };
+};
 
 function MetricCard({
   label,
@@ -134,19 +177,12 @@ function MetricCard({
   tone: string;
 }) {
   return (
-    <article className="metric-card group">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="eyebrow">{label}</p>
-          <p className="mt-2 text-[1.65rem] font-semibold tracking-[-0.04em] text-white">{value}</p>
-        </div>
-        <span className="grid h-9 w-9 place-items-center rounded-sm border border-white/8 bg-white/[0.025]" style={{ color: tone }}>
-          <Icon size={17} strokeWidth={1.8} />
-        </span>
-      </div>
-      <div className="mt-4 flex items-center gap-2 border-t border-white/[0.055] pt-3 text-[11px] text-slate-500">
-        <span className="h-1.5 w-1.5 rounded-full" style={{ background: tone }} />
-        {detail}
+    <article className="metric-card" style={{ "--metric-tone": tone } as CSSProperties}>
+      <span className="metric-card-icon"><Icon size={16} strokeWidth={1.8} /></span>
+      <div className="metric-card-copy">
+        <p className="metric-card-label">{label}</p>
+        <p className="metric-card-value">{value}</p>
+        <p className="metric-card-detail">{detail}</p>
       </div>
     </article>
   );
@@ -1358,7 +1394,8 @@ export function CommandCenter() {
   const [filter, setFilter] = useState<Filter>("all");
   const [selectedId, setSelectedId] = useState(DEMO_EVENTS[0].id);
   const [query, setQuery] = useState("");
-  const [nav, setNav] = useState("Overview");
+  const [nav, setNav] = useState<WorkspaceName>("Overview");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [mobileIntelOpen, setMobileIntelOpen] = useState(false);
   const [operationalDataset, setOperationalDataset] = useState<DashboardDataset | null>(null);
@@ -1379,6 +1416,22 @@ export function CommandCenter() {
     getDesktopSnapshot,
     getServerDesktopSnapshot,
   );
+  const theme = useSyncExternalStore(
+    subscribeToTheme,
+    getThemeSnapshot,
+    getServerThemeSnapshot,
+  );
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
+
+  const toggleTheme = () => {
+    const nextTheme: ThemeMode = theme === "dark" ? "light" : "dark";
+    document.documentElement.dataset.theme = nextTheme;
+    window.localStorage.setItem("aegisfire-theme", nextTheme);
+    window.dispatchEvent(new Event(THEME_CHANGE_EVENT));
+  };
 
   useEffect(() => {
     const controller = new AbortController();
@@ -1480,7 +1533,7 @@ export function CommandCenter() {
   const selectEvent = (id: string) => {
     setSelectedId(id);
     setMapFocusNonce((current) => current + 1);
-    if (window.innerWidth < 1120) setMobileIntelOpen(true);
+    if (window.innerWidth < 1440) setMobileIntelOpen(true);
   };
 
   const handleAlertReview = async (
@@ -1521,6 +1574,9 @@ export function CommandCenter() {
     Validate: ["Human-in-the-loop review", "Cluster validation workspace", "Satellite context · metric diagnostics · append-only analyst labels"],
     Models: ["Governed learning system", "Model readiness and benchmark laboratory", "GPU provenance · spatial holdout · deployment gate"],
   }[nav] ?? ["National operating picture", "Thermal intelligence command center", "Detection · context · persistence · classification · explanation"];
+  const currentWorkspace = NAV_ITEMS.find((item) => item.label === nav) ?? NAV_ITEMS[0];
+  const CurrentWorkspaceIcon = currentWorkspace.icon;
+  const showSearch = nav === "Overview" || nav === "Events" || nav === "Discover";
 
   const generateBrief = () => {
     const lines = [
@@ -1556,93 +1612,153 @@ export function CommandCenter() {
   };
 
   return (
-    <main className="min-h-screen bg-[#050a0f] text-slate-300">
+    <main className={`app-shell ${sidebarCollapsed ? "is-sidebar-collapsed" : ""}`}>
       <div className="noise-layer" aria-hidden="true" />
 
-      <header className="topbar">
-        <div className="flex min-w-0 items-center gap-3">
+      <aside className="mission-sidebar" aria-label="AegisFire navigation">
+        <div className="sidebar-brand">
           <div className="brand-mark"><Radar size={18} strokeWidth={2.2} /></div>
-          <div className="min-w-0">
-            <div className="flex items-baseline gap-2">
-              <span className="text-sm font-bold tracking-[-0.02em] text-white">AEGISFIRE</span>
-            </div>
-            <p className="hidden text-[8px] uppercase tracking-[0.17em] text-slate-600 sm:block">Geospatial intelligence system</p>
+          <div className="sidebar-brand-copy">
+            <strong>AEGISFIRE</strong>
+            <span>Thermal intelligence</span>
           </div>
+          <button
+            type="button"
+            className="sidebar-collapse"
+            aria-label={sidebarCollapsed ? "Expand navigation" : "Collapse navigation"}
+            onClick={() => setSidebarCollapsed((current) => !current)}
+          >
+            {sidebarCollapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
+          </button>
         </div>
 
-        <nav className="hidden h-full items-center lg:flex" aria-label="Primary navigation">
-          {NAV_ITEMS.map((item) => (
-            <button key={item.label} type="button" onClick={() => setNav(item.label)} className={`nav-tab ${nav === item.label ? "is-active" : ""}`}>
-              <item.icon size={13} /> {item.label}
-            </button>
+        <nav className="mission-navigation" aria-label="Primary navigation">
+          {NAV_GROUPS.map((group) => (
+            <section key={group.label} className="nav-group">
+              <p>{group.label}</p>
+              {group.items.map((item) => (
+                <button
+                  key={item.label}
+                  type="button"
+                  onClick={() => setNav(item.label)}
+                  className={`mission-nav-item ${nav === item.label ? "is-active" : ""}`}
+                  aria-current={nav === item.label ? "page" : undefined}
+                  title={sidebarCollapsed ? `${item.label} — ${item.description}` : undefined}
+                >
+                  <item.icon size={16} strokeWidth={1.8} />
+                  <span><strong>{item.label}</strong><small>{item.description}</small></span>
+                  <ChevronRight size={13} />
+                </button>
+              ))}
+            </section>
           ))}
         </nav>
 
-        <div className="flex items-center gap-2 sm:gap-3">
+        <div className="sidebar-system-card">
+          <div className="sidebar-system-heading">
+            <span className={`system-indicator status-${apiStatus}`} />
+            <span><strong>{dataView === "operational" ? "FIRMS connected" : "Demo safeguard"}</strong><small>{apiStatus === "ready" ? "Operational source available" : apiStatus === "loading" ? "Connecting to local service" : "Offline cache active"}</small></span>
+          </div>
           <button
             type="button"
             disabled={!operationalDataset}
             onClick={() => setDataView((current) => current === "operational" ? "simulation" : "operational")}
-            className="hidden items-center gap-2 rounded-sm border border-emerald-400/15 bg-emerald-400/[0.045] px-2.5 py-1.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-emerald-300 disabled:text-slate-500 sm:flex"
+            className="source-switch"
             title={operationalDataset ? "Switch between NASA FIRMS and simulation data" : "Waiting for the local API"}
           >
-            <span className={`h-1.5 w-1.5 rounded-full ${apiStatus === "ready" ? "bg-emerald-400" : apiStatus === "loading" ? "bg-amber-300" : "bg-slate-600"}`} />
-            {apiStatus === "loading" ? "Connecting FIRMS" : dataView === "operational" ? "NASA FIRMS snapshot" : apiStatus === "ready" ? "Simulation · FIRMS ready" : "Simulation · API offline"}
+            {dataView === "operational" ? "Use simulation" : "Use FIRMS snapshot"}
+            <ChevronRight size={12} />
           </button>
-          <button type="button" className="icon-button relative" aria-label="Notifications" onClick={() => setNav("Events")}>
-            <Bell size={15} />
-            <i className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-orange-400" />
-          </button>
-          <button type="button" className="icon-button lg:hidden" aria-label="Open navigation" aria-expanded={mobileNavOpen} onClick={() => setMobileNavOpen((current) => !current)}><Menu size={16} /></button>
-          <div className="grid h-8 w-8 place-items-center rounded-sm border border-white/10 bg-[#111b24] text-[10px] font-bold text-slate-300">TA</div>
         </div>
-      </header>
 
-      {mobileNavOpen && (
-        <div className="mobile-nav-backdrop lg:hidden" onClick={() => setMobileNavOpen(false)}>
-          <nav className="mobile-nav-panel" aria-label="Mobile navigation" onClick={(event) => event.stopPropagation()}>
-            {NAV_ITEMS.map((item) => (
-              <button
-                key={item.label}
-                type="button"
-                className={nav === item.label ? "is-active" : ""}
-                onClick={() => { setNav(item.label); setMobileNavOpen(false); }}
-              >
-                <item.icon size={14} />
-                <span>{item.label}</span>
-                <ChevronRight size={12} />
-              </button>
-            ))}
-          </nav>
+        <div className="sidebar-operator">
+          <div className="operator-avatar">TA</div>
+          <span><strong>Thermal analyst</strong><small>National desk</small></span>
+          <ShieldCheck size={14} />
         </div>
-      )}
+      </aside>
 
-      <section className="mx-auto max-w-[1800px] px-3 pb-5 pt-4 sm:px-5 lg:px-6">
-        <div className="mb-3 flex flex-col justify-between gap-3 lg:flex-row lg:items-end">
-          <div>
-            <div className="flex items-center gap-2 text-[9px] font-semibold uppercase tracking-[0.18em] text-orange-400">
-              <CircleDot size={11} /> {viewCopy[0]}
-            </div>
-            <h1 className="mt-1 text-xl font-semibold tracking-[-0.035em] text-white sm:text-2xl">{viewCopy[1]}</h1>
-            <p className="mt-1 text-[11px] text-slate-500">{viewCopy[2]}</p>
+      <div className="app-body">
+        <header className="command-bar">
+          <div className="command-mobile-brand">
+            <button type="button" className="icon-button" aria-label="Open navigation" aria-expanded={mobileNavOpen} onClick={() => setMobileNavOpen((current) => !current)}><Menu size={17} /></button>
+            <div className="brand-mark"><Radar size={16} /></div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="search-box">
-              <Search size={13} />
-              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search ID, region, source…" aria-label="Search thermal intelligence" />
-              {query && <button type="button" onClick={() => setQuery("")} aria-label="Clear search"><X size={12} /></button>}
-            </div>
-            <button type="button" className="secondary-button"><SlidersHorizontal size={13} /> Advanced filters</button>
-            <button type="button" className="primary-button" onClick={generateBrief}><Sparkles size={13} /> Generate brief</button>
+          <div className="command-location">
+            <span>Mission control</span>
+            <ChevronRight size={12} />
+            <CurrentWorkspaceIcon size={14} />
+            <strong>{nav}</strong>
           </div>
-        </div>
+          <div className="command-actions">
+            <span className="command-time"><Clock3 size={13} /> Live intelligence</span>
+            <button
+              type="button"
+              className="theme-toggle"
+              onClick={toggleTheme}
+              aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+              aria-pressed={theme === "light"}
+            >
+              <Sun size={13} />
+              <span className="theme-toggle-track"><i /></span>
+              <Moon size={13} />
+            </button>
+            <button type="button" className="icon-button notification-button" aria-label="Open event notifications" onClick={() => setNav("Events")}>
+              <Bell size={15} /><i />
+            </button>
+            <div className="command-avatar" aria-label="Signed in as thermal analyst">TA</div>
+          </div>
+        </header>
 
-        <div className="mb-3 grid grid-cols-2 gap-2 lg:grid-cols-4">
-          <MetricCard label="Thermal detections" value={datasetTotal.toLocaleString("en-IN")} detail={`${activeEvents.length} loaded on this map`} icon={Flame} tone="#ff6b35" />
-          <MetricCard label="High-FRP signals" value={String(highFrpCount).padStart(2, "0")} detail="FRP ≥ 20 MW · not incident confirmation" icon={Gauge} tone="#f7bf4f" />
-          <MetricCard label="Corroborated cells" value={String(corroboratedCount).padStart(2, "0")} detail="Observed by multiple VIIRS sources" icon={Radar} tone="#7ed957" />
-          <MetricCard label="Priority review" value={String(priorityCount).padStart(2, "0")} detail="One triage item per metric cluster" icon={AlertTriangle} tone="#b28cff" />
-        </div>
+        {mobileNavOpen && (
+          <div className="mobile-nav-backdrop" onClick={() => setMobileNavOpen(false)}>
+            <nav className="mobile-nav-panel" aria-label="Mobile navigation" onClick={(event) => event.stopPropagation()}>
+              <div className="mobile-nav-heading"><span><Radar size={16} /> AegisFire</span><button type="button" className="icon-button" onClick={() => setMobileNavOpen(false)} aria-label="Close navigation"><X size={15} /></button></div>
+              {NAV_GROUPS.map((group) => (
+                <section key={group.label}>
+                  <p>{group.label}</p>
+                  {group.items.map((item) => (
+                    <button
+                      key={item.label}
+                      type="button"
+                      className={nav === item.label ? "is-active" : ""}
+                      onClick={() => { setNav(item.label); setMobileNavOpen(false); }}
+                    >
+                      <item.icon size={15} />
+                      <span><strong>{item.label}</strong><small>{item.description}</small></span>
+                      <ChevronRight size={12} />
+                    </button>
+                  ))}
+                </section>
+              ))}
+            </nav>
+          </div>
+        )}
+
+        <section className="workspace-container">
+          <div className="workspace-heading">
+            <div className="workspace-title-block">
+              <div className="workspace-kicker"><CircleDot size={11} /> {viewCopy[0]}</div>
+              <h1>{viewCopy[1]}</h1>
+              <p>{viewCopy[2]}</p>
+            </div>
+            <div className="workspace-actions">
+              {showSearch && <div className="search-box">
+                <Search size={14} />
+                <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search ID, region, source…" aria-label="Search thermal intelligence" />
+                {query && <button type="button" onClick={() => setQuery("")} aria-label="Clear search"><X size={12} /></button>}
+              </div>}
+              {nav === "Overview" && <button type="button" className="primary-button" onClick={generateBrief}><Sparkles size={14} /> Generate brief</button>}
+            </div>
+          </div>
+
+          {nav === "Overview" && <section className="mission-pulse" aria-label="Mission pulse">
+            <div className="mission-pulse-label"><span>Mission pulse</span><small>{dataView === "operational" ? "NASA FIRMS snapshot" : "Deterministic demo"}</small></div>
+            <MetricCard label="Detections" value={datasetTotal.toLocaleString("en-IN")} detail={`${activeEvents.length} currently mapped`} icon={Flame} tone="#ff6b35" />
+            <MetricCard label="High FRP" value={String(highFrpCount).padStart(2, "0")} detail="≥ 20 MW · candidate only" icon={Gauge} tone="#d89a22" />
+            <MetricCard label="Corroborated" value={String(corroboratedCount).padStart(2, "0")} detail="Multiple VIIRS sources" icon={Radar} tone="#4fae67" />
+            <MetricCard label="Review queue" value={String(priorityCount).padStart(2, "0")} detail="Open priority clusters" icon={AlertTriangle} tone="#8c6ad8" />
+          </section>}
 
         {nav === "Overview" && <div className="workspace-grid">
           <section className="event-rail custom-scrollbar">
@@ -1764,20 +1880,21 @@ export function CommandCenter() {
           />
         )}
 
-        <div className="mt-3 flex items-center justify-between rounded-sm border border-amber-300/15 bg-amber-300/[0.035] px-3 py-2 text-[9px] text-slate-500">
+        <div className="methodology-strip">
           <span className="flex items-center gap-2"><ShieldCheck size={12} className="text-amber-300" /> {dataView === "operational" ? "Operational NASA FIRMS detections: thermal anomalies only. India ADM0 containment, OSM proximity, annual MODIS land cover, and accumulated history are applied; readiness is disclosed and no incident is confirmed." : "Demonstration environment: events and intelligence outputs are simulated and are not operational incident reports."}</span>
           <span className="hidden items-center gap-1 text-slate-600 sm:flex">Methodology <ChevronRight size={11} /></span>
         </div>
       </section>
 
       {mobileIntelOpen && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm min-[1120px]:hidden" onClick={() => setMobileIntelOpen(false)}>
-          <div className="absolute bottom-0 right-0 top-0 w-full max-w-md bg-[#071018] shadow-2xl" onClick={(event) => event.stopPropagation()}>
+        <div className="mobile-intel-backdrop min-[1440px]:hidden" onClick={() => setMobileIntelOpen(false)}>
+          <div className="mobile-intel-sheet" onClick={(event) => event.stopPropagation()}>
             <button type="button" onClick={() => setMobileIntelOpen(false)} className="absolute right-4 top-4 z-10 icon-button" aria-label="Close intelligence panel"><X size={15} /></button>
             <EvidencePanel event={selectedEvent} evidenceGraph={selectedEvidenceGraph} />
           </div>
         </div>
       )}
+      </div>
     </main>
   );
 }

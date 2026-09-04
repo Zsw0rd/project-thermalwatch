@@ -642,3 +642,45 @@ Advance two immediately buildable roadmap stages together: make recurring FIRMS 
 - The scheduler profile and contracts were validated, but no live recurring process was left running and no network refresh was forced during this deterministic work session. Deployment must provide the desired cadence, retention, monitoring, and a secret-managed MAP_KEY when authenticated Area API access is required.
 - JSON audit locking coordinates local API/scheduler processes only. Production should persist ingestion runs, source checksums, lineage, retries, and authenticated operator actions in PostgreSQL/PostGIS or another transactional store.
 - The next safe stages are reviewer agreement/quality metrics, production PostGIS lineage and cluster reconciliation, structured release acceptance tests, and calibrated/temporal evaluation only after sufficient reviewed labels and history exist.
+
+## 2026-09-04 — Operator-first web shell and dual-theme redesign
+
+### Objective
+
+Rework the primary web UI from the shell upward so the nine-stage product feels organized and purpose-built, reduce generic equal-weight card treatment, improve desktop/mobile wayfinding, and add a persistent accessible dark/light mode switch without removing any existing intelligence workflow.
+
+### Files or areas touched
+
+- `UI_REDESIGN_PLAN.md` for the evidence-based audit, new information architecture, semantic visual system, responsive behavior, acceptance criteria, and follow-on work;
+- `frontend/src/components/command-center.tsx` for the global shell, grouped navigation, contextual command bar, compact Overview pulse, and theme behavior;
+- `frontend/src/components/thermal-map.tsx` for a stable map-overlay styling hook across themes;
+- `frontend/src/app/globals.css` for semantic dark/light tokens, the new mission rail and command bar, Overview hierarchy, responsive drawer, cross-workspace surface treatment, focus states, and reduced-motion behavior;
+- this living project log.
+
+### Decisions and important implementation details
+
+- Replaced the compressed nine-item top strip with a persistent desktop mission rail grouped by operator intent: Operate (Overview, Events, Monitor), Investigate (Playback, Discover, Analytics), and Govern (Validate, Models, Sources). The rail can collapse to an icon mode and retains the source/readiness and operator contexts.
+- Introduced a contextual command bar for workspace location, live-state context, notifications, account identity, and the global theme switch. Search now appears only where it supports the task (Overview, Events, and Discover), and evidence-brief generation is scoped to Overview.
+- Removed the global four-card KPI slab from eight unrelated workspaces. Overview now uses a compact one-row Mission pulse with detections, high-FRP candidates, corroboration, and open review volume; other stages retain their existing task-specific summaries.
+- Preserved the complete working map stack: actual NASA EOSDIS GIBS imagery, the coordinate grid, FIRMS-derived markers and clusters, land-cover context, facilities, attribution, queue filtering, map selection, and responsive evidence detail.
+- Added shared semantic color roles instead of a one-off inverted palette. Dark and light themes now control canvas, elevated surfaces, borders, text hierarchy, thermal/geospatial accents, warning/success state, map controls, existing analytical surfaces, and native `color-scheme`.
+- The theme preference uses `aegisfire-theme` in browser `localStorage`, follows the operating-system preference when no explicit choice exists, and restores the user choice across reloads. The switch exposes its destination in the accessible label and reports light mode through `aria-pressed`.
+- Added explicit keyboard focus rings, larger shell controls, visible active navigation with icon/text/position in addition to color, and reduced-motion behavior. These improvements reduce known accessibility risk but are not a claim of WCAG conformance.
+- Rebuilt the small-screen navigation as a grouped full-height drawer. At 390 px the global shell removes the desktop rail, presents compact 2×2 pulse telemetry, retains map tools, and avoids placing large KPI cards ahead of the core map.
+- Adjusted the three-column evidence breakpoint from 1,120 px to 1,440 px because the persistent rail reduces usable map width; below that threshold the evidence panel remains available as the existing overlay instead of squeezing the map.
+
+### Verification performed and result
+
+- `npm run lint` — passed with no ESLint errors.
+- `npm run build` — passed Next.js production compilation, strict TypeScript, static page generation, and route finalization.
+- Live browser workspace sweep — all nine destinations rendered a heading and remained reachable; Mission pulse appeared on Overview and was absent from Events, Monitor, Playback, Discover, Analytics, Validate, Models, and Sources.
+- Live theme QA — the accessible control changed from “Switch to light mode” to “Switch to dark mode”, light mode rendered the Overview and Discover workflows, and an explicit light choice survived a full page reload.
+- Live responsive QA at 390 × 844 px — the compact Overview, map, theme button, and grouped mobile drawer rendered; all nine destinations were exposed in the correct three groups. The temporary viewport override was reset after testing.
+- Visual comparison against the pre-redesign captures — the map became the dominant work surface, navigation labels gained meaningful grouping and descriptions, the repeated KPI slab was eliminated, and light mode kept satellite overlays and labels legible.
+
+### Known limitations or next concrete task
+
+- `command-center.tsx` still contains all workspace implementations in one large client component. The next maintainability step is to extract the stable shell and each stage into typed workspace modules without changing behavior.
+- Several domain workspaces still inherit parts of the original very-dense table typography. A follow-up content-density pass should tune tables and charts per workflow after analyst feedback, while preserving the new shell and theme tokens.
+- The browser audit covered representative Overview and Discover states, all navigation destinations, theme persistence, and the mobile drawer. A formal keyboard-only and assistive-technology pass is still needed before making an accessibility-conformance claim.
+- Workspace and selection state remain in memory instead of the URL. Shareable deep links and session restoration are the next high-value navigation improvement.

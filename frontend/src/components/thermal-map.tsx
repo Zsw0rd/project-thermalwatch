@@ -693,7 +693,7 @@ export function ThermalMap({
       <div ref={containerRef} className="absolute inset-0" aria-label="Thermal events map" />
       <div className="map-vignette" aria-hidden="true" />
       <canvas ref={overlayCanvasRef} className="operational-map-overlay" aria-hidden="true" />
-      <div className="absolute left-4 top-4 z-10 flex items-center gap-2 rounded-sm border border-white/10 bg-[#09121a]/90 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-300 shadow-lg backdrop-blur">
+      <div className="map-canvas-label absolute left-4 top-4 z-10 flex items-center gap-2 rounded-sm border border-white/10 bg-[#09121a]/90 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-300 shadow-lg backdrop-blur">
         <span className="relative flex h-2 w-2">
           <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
           <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
