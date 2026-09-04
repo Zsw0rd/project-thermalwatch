@@ -1,4 +1,4 @@
-# ThermalWatch AI Repository Instructions
+# AegisFire Repository Instructions
 
 These instructions apply to every file and subdirectory in this repository.
 

@@ -1,1 +1,1 @@
-"""ThermalWatch AI backend package."""
+"""AegisFire backend package."""

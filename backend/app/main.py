@@ -47,7 +47,7 @@ app.include_router(events_router)
 async def health() -> HealthResponse:
     return HealthResponse(
         status="ok",
-        service="thermalwatch-api",
+        service="aegisfire-api",
         environment=settings.app_env,
         data_mode="snapshot" if settings.demo_mode else "live",
     )

@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -9,23 +9,96 @@ from app.config import get_settings
 from app.db.session import get_session
 from app.schemas.events import (
     AlertCollection,
+    AlertPreview,
+    AlertReviewUpdate,
+    AnalyticsDashboard,
     AnalyticsSummary,
+    ArchiveResponse,
+    ClusteringDiagnostics,
+    ClusteringSensitivityReport,
+    ClusterReviewCollection,
+    ClusterReviewRecord,
+    ClusterReviewUpdate,
     ConfidenceLabel,
+    EventCategory,
     EventCollection,
+    EventEvidenceGraph,
+    HistoricalReadiness,
+    IngestionRunCollection,
+    LandCoverRefreshResponse,
+    ModelBenchmarkEnvelope,
+    ModelRegistry,
+    ModelTrainingReadiness,
     NormalizedThermalEvent,
+    OperationalHealth,
     PersistenceResponse,
+    PlaybackCollection,
     RefreshResponse,
+    ThermalClusterCollection,
+    ThermalClusterSummary,
+    ThermalSourceFingerprintCollection,
 )
-from app.schemas.facilities import FacilityCollection, FacilityRefreshResponse
+from app.schemas.facilities import (
+    FacilityCollection,
+    FacilityMonitorCollection,
+    FacilityMonitorSummary,
+    FacilityRefreshResponse,
+)
+from app.services.alert_workflow import apply_alert_review_states, update_alert_review
+from app.services.boundary import (
+    BOUNDARY_API_URL,
+    administrative_area_context,
+    load_india_boundary,
+)
+from app.services.cluster_review import (
+    cluster_review_collection,
+    create_cluster_review,
+)
+from app.services.clustering_sensitivity import clustering_sensitivity_report
+from app.services.evidence_graph import build_event_evidence_graph
+from app.services.facility_monitor import build_facility_monitors, facility_monitor_collection
 from app.services.firms import (
     alert_previews,
     analytics_summary,
+    current_source_files,
     invalidate_event_cache,
     load_events,
-    refresh_source_files,
+)
+from app.services.history_archive import archive_source_files, history_readiness
+from app.services.ingestion_operations import (
+    ingestion_runs,
+    operational_health,
+    record_archive_only_run,
+    run_firms_ingestion_cycle,
+)
+from app.services.land_cover import (
+    LAYER_ID,
+    OBSERVATION_DATE,
+    land_cover_cell_key,
+    load_land_cover_contexts,
+    refresh_land_cover_contexts,
+)
+from app.services.land_cover import (
+    SOURCE_URL as LAND_COVER_SOURCE_URL,
+)
+from app.services.land_cover import (
+    TILE_TEMPLATE as LAND_COVER_TILE_TEMPLATE,
+)
+from app.services.model_pipeline import (
+    load_model_benchmark,
+    model_registry,
+    model_training_readiness,
 )
 from app.services.osm import load_facilities, refresh_facilities
 from app.services.persistence import persist_current_snapshot
+from app.services.source_fingerprint import source_fingerprint_collection
+from app.services.temporal import (
+    analytics_dashboard,
+    build_cluster_summaries,
+    cluster_collection,
+    clustering_diagnostics,
+    playback_collection,
+)
 
 router = APIRouter(prefix="/api/v1")
 
@@ -53,9 +126,14 @@ def _filtered_events(
     min_frp: float = 0,
     bbox: str | None = None,
     source: str | None = None,
+    category: EventCategory | None = None,
+    window_hours: int | None = None,
 ) -> list[NormalizedThermalEvent]:
     bounds = _parse_bbox(bbox)
     events = load_events()
+    cutoff = None
+    if window_hours and events:
+        cutoff = max(event.acquired_at for event in events) - timedelta(hours=window_hours)
     filtered: list[NormalizedThermalEvent] = []
     for event in events:
         if confidence and event.confidence != confidence:
@@ -63,6 +141,10 @@ def _filtered_events(
         if event.frp_mw < min_frp:
             continue
         if source and event.source != source:
+            continue
+        if category and event.category != category:
+            continue
+        if cutoff and event.acquired_at < cutoff:
             continue
         if bounds:
             west, south, east, north = bounds
@@ -78,32 +160,35 @@ async def list_events(
     min_frp: Annotated[float, Query(ge=0)] = 0,
     bbox: str | None = None,
     source: str | None = None,
+    category: EventCategory | None = None,
+    window_hours: Annotated[int | None, Query(ge=1, le=24 * 31)] = None,
     offset: Annotated[int, Query(ge=0)] = 0,
-    limit: Annotated[int, Query(ge=1, le=2000)] = 500,
+    limit: Annotated[int, Query(ge=1, le=5000)] = 500,
 ) -> EventCollection:
-    settings = get_settings()
     all_events = _filtered_events(
         confidence=confidence,
         min_frp=min_frp,
         bbox=bbox,
         source=source,
+        category=category,
+        window_hours=window_hours,
     )
     selected = all_events[offset : offset + limit]
     source_updated_at = max(
         (event.source_attribution.retrieved_at for event in all_events),
         default=datetime.now(UTC),
     )
-    west, south, east, north = settings.india_bbox
     return EventCollection(
         mode="operational",
         generated_at=datetime.now(UTC),
         source_updated_at=source_updated_at,
-        geographic_scope=f"Configured India bounding box ({west},{south},{east},{north})",
+        geographic_scope="India ADM0 containment using the pinned geoBoundaries gbOpen polygon",
         scope_limitations=[
-            "Bounding-box filtering is not a precise India administrative-boundary join.",
+            "The India administrative boundary represents 2014 and is not a territorial claim.",
             "FIRMS reports thermal anomalies, not confirmed fires or industrial incidents.",
-            "OSM proximity is applied; land cover and long-term history are not yet applied.",
-            "Recurrence scores only describe co-observation within the current snapshot.",
+            "OSM proximity, MODIS IGBP land cover, administrative containment, and temporal recurrence are applied.",
+            "The annual 2024 land-cover class is contextual evidence, not a contemporaneous observation or confirmation of the thermal source.",
+            "Coverage readiness is explicit; short archives rank candidates but are not learned long-term facility baselines.",
         ],
         total=len(all_events),
         returned=len(selected),
@@ -117,6 +202,18 @@ async def get_event(event_id: str) -> NormalizedThermalEvent:
     if event is None:
         raise HTTPException(status_code=404, detail="Thermal event not found")
     return event
+
+
+@router.get(
+    "/events/{event_id}/evidence-graph",
+    response_model=EventEvidenceGraph,
+    tags=["thermal events"],
+)
+async def event_evidence_graph(event_id: str) -> EventEvidenceGraph:
+    event = next((item for item in load_events() if item.id == event_id), None)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Thermal event not found")
+    return build_event_evidence_graph(event)
 
 
 @router.get("/events.geojson", tags=["thermal events"])
@@ -142,6 +239,10 @@ async def events_geojson(
                     "confidence": event.confidence,
                     "classification": event.classification,
                     "cluster_id": event.cluster_id,
+                    "land_cover_class": (
+                        event.land_cover.class_label if event.land_cover else None
+                    ),
+                    "land_cover_group": (event.land_cover.group if event.land_cover else None),
                 },
             }
             for event in events
@@ -154,20 +255,271 @@ async def summary() -> AnalyticsSummary:
     return analytics_summary(load_events())
 
 
+@router.get(
+    "/history/readiness",
+    response_model=HistoricalReadiness,
+    tags=["analytics"],
+)
+async def historical_readiness() -> HistoricalReadiness:
+    return history_readiness(load_events())
+
+
+@router.get(
+    "/analytics/dashboard",
+    response_model=AnalyticsDashboard,
+    tags=["analytics"],
+)
+async def dashboard_analytics() -> AnalyticsDashboard:
+    return analytics_dashboard(load_events())
+
+
+@router.get(
+    "/clustering/diagnostics",
+    response_model=ClusteringDiagnostics,
+    tags=["analytics"],
+)
+async def spatial_clustering_diagnostics() -> ClusteringDiagnostics:
+    return clustering_diagnostics(load_events())
+
+
+@router.get(
+    "/clustering/sensitivity",
+    response_model=ClusteringSensitivityReport,
+    tags=["analytics"],
+)
+async def spatial_clustering_sensitivity() -> ClusteringSensitivityReport:
+    return await run_in_threadpool(clustering_sensitivity_report, load_events())
+
+
+@router.get(
+    "/models/readiness",
+    response_model=ModelTrainingReadiness,
+    tags=["models"],
+)
+async def training_readiness() -> ModelTrainingReadiness:
+    return model_training_readiness(load_events())
+
+
+@router.get(
+    "/models/benchmark",
+    response_model=ModelBenchmarkEnvelope,
+    tags=["models"],
+)
+async def model_benchmark() -> ModelBenchmarkEnvelope:
+    return load_model_benchmark()
+
+
+@router.get(
+    "/models/registry",
+    response_model=ModelRegistry,
+    tags=["models"],
+)
+async def registered_models() -> ModelRegistry:
+    return model_registry(load_events())
+
+
+@router.get("/playback", response_model=PlaybackCollection, tags=["analytics"])
+async def playback() -> PlaybackCollection:
+    return playback_collection(load_events())
+
+
+@router.get(
+    "/clusters",
+    response_model=ThermalClusterCollection,
+    tags=["thermal clusters"],
+)
+async def clusters(
+    limit: Annotated[int, Query(ge=1, le=1000)] = 100,
+    persistence_label: str | None = None,
+) -> ThermalClusterCollection:
+    return cluster_collection(
+        load_events(),
+        limit=limit,
+        persistence_label=persistence_label,
+    )
+
+
+@router.get(
+    "/clusters/{cluster_id}",
+    response_model=ThermalClusterSummary,
+    tags=["thermal clusters"],
+)
+async def get_cluster(cluster_id: str) -> ThermalClusterSummary:
+    cluster = next(
+        (item for item in build_cluster_summaries(load_events()) if item.cluster_id == cluster_id),
+        None,
+    )
+    if cluster is None:
+        raise HTTPException(status_code=404, detail="Thermal cluster not found")
+    return cluster
+
+
+@router.get(
+    "/source-fingerprints",
+    response_model=ThermalSourceFingerprintCollection,
+    tags=["source discovery"],
+)
+async def source_fingerprints(
+    limit: Annotated[int, Query(ge=1, le=1000)] = 100,
+    category: EventCategory | None = None,
+) -> ThermalSourceFingerprintCollection:
+    return await run_in_threadpool(
+        source_fingerprint_collection,
+        load_events(),
+        category=category,
+        limit=limit,
+    )
+
+
+@router.get(
+    "/discoveries/unknown",
+    response_model=ThermalSourceFingerprintCollection,
+    tags=["source discovery"],
+)
+async def unknown_source_discoveries(
+    limit: Annotated[int, Query(ge=1, le=1000)] = 100,
+) -> ThermalSourceFingerprintCollection:
+    return await run_in_threadpool(
+        source_fingerprint_collection,
+        load_events(),
+        category="unknown",
+        discoveries_only=True,
+        limit=limit,
+    )
+
+
+@router.get(
+    "/validation/reviews",
+    response_model=ClusterReviewCollection,
+    tags=["validation"],
+)
+async def validation_reviews() -> ClusterReviewCollection:
+    return cluster_review_collection()
+
+
+@router.post(
+    "/clusters/{cluster_id}/reviews",
+    response_model=ClusterReviewRecord,
+    tags=["validation"],
+)
+def add_cluster_review(
+    cluster_id: str,
+    update: ClusterReviewUpdate,
+) -> ClusterReviewRecord:
+    events = load_events()
+    cluster = next(
+        (item for item in build_cluster_summaries(events) if item.cluster_id == cluster_id),
+        None,
+    )
+    if cluster is None:
+        raise HTTPException(status_code=404, detail="Thermal cluster not found")
+    representative = next(
+        (item for item in events if item.id == cluster.representative_event_id),
+        None,
+    )
+    if representative is None:
+        raise HTTPException(status_code=409, detail="Representative evidence is unavailable")
+    return create_cluster_review(cluster, representative, update)
+
+
+@router.get(
+    "/events/{event_id}/history",
+    response_model=ThermalClusterSummary,
+    tags=["thermal events"],
+)
+async def event_history(event_id: str) -> ThermalClusterSummary:
+    event = next((item for item in load_events() if item.id == event_id), None)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Thermal event not found")
+    cluster = next(
+        item
+        for item in build_cluster_summaries(load_events())
+        if item.cluster_id == event.cluster_id
+    )
+    return cluster
+
+
 @router.get("/alerts", response_model=AlertCollection, tags=["alerts"])
 async def alerts() -> AlertCollection:
-    return alert_previews(load_events())
+    collection = alert_previews(load_events())
+    return collection.model_copy(update={"alerts": apply_alert_review_states(collection.alerts)})
+
+
+@router.patch(
+    "/alerts/{alert_id}",
+    response_model=AlertPreview,
+    tags=["alerts"],
+)
+def update_alert(alert_id: str, update: AlertReviewUpdate) -> AlertPreview:
+    collection = alert_previews(load_events())
+    alert = next((item for item in collection.alerts if item.id == alert_id), None)
+    if alert is None:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    return update_alert_review(alert, update)
 
 
 @router.get("/sources", tags=["system"])
 async def sources() -> dict[str, object]:
     settings = get_settings()
+    readiness = history_readiness(load_events(), settings)
     return {
         "provider": "NASA FIRMS",
         "active_sources": sorted({event.source for event in load_events()}),
         "authenticated_area_api_configured": bool(settings.firms_map_key),
-        "fallback": "Official public South Asia 24-hour VIIRS CSV feeds",
+        "fallback": "Official public South Asia seven-day VIIRS CSV feeds",
         "attribution_required": True,
+        "archive": {
+            "snapshot_files": readiness.archive_snapshot_files,
+            "observed_calendar_days": readiness.observed_calendar_days,
+            "status": readiness.status,
+            "methodology": readiness.methodology,
+        },
+        "clustering": clustering_diagnostics(load_events()).model_dump(mode="json"),
+        "geography": administrative_area_context().model_dump(),
+        "land_cover": {
+            "provider": "NASA EOSDIS GIBS",
+            "product": "MCD12Q1.061 MODIS IGBP annual land cover",
+            "layer_id": LAYER_ID,
+            "observation_date": OBSERVATION_DATE,
+            "sampled_cells": len(load_land_cover_contexts(settings)),
+            "source_url": LAND_COVER_SOURCE_URL,
+            "classification_use": "contextual likelihood feature only",
+        },
+    }
+
+
+@router.get("/geography/india", tags=["system"])
+async def india_geography() -> dict[str, Any]:
+    boundary = load_india_boundary()
+    if boundary is None:
+        raise HTTPException(status_code=503, detail="Pinned India ADM0 boundary is unavailable")
+    return {
+        **boundary.feature_collection,
+        "attribution": administrative_area_context().model_dump(),
+        "metadata_url": BOUNDARY_API_URL,
+        "limitations": [
+            "The boundary represents 2014 and is used only for deterministic data containment.",
+            "Boundary geometry is not a territorial claim or a substitute for authoritative survey data.",
+        ],
+    }
+
+
+@router.get("/land-cover/source", tags=["system"])
+async def land_cover_source() -> dict[str, object]:
+    contexts = load_land_cover_contexts()
+    return {
+        "provider": "NASA EOSDIS GIBS",
+        "product": "MCD12Q1.061 MODIS IGBP annual land cover",
+        "layer_id": LAYER_ID,
+        "observation_date": OBSERVATION_DATE,
+        "sampled_cells": len(contexts),
+        "source_url": LAND_COVER_SOURCE_URL,
+        "tile_template": LAND_COVER_TILE_TEMPLATE,
+        "classification_use": "contextual likelihood feature only",
+        "limitation": (
+            "Annual 500 m categorical land cover is not contemporaneous source "
+            "confirmation and can be mixed at class boundaries."
+        ),
     }
 
 
@@ -183,6 +535,40 @@ async def facilities(
         total=len(all_items),
         facilities=items,
     )
+
+
+@router.get(
+    "/facility-monitors",
+    response_model=FacilityMonitorCollection,
+    tags=["industrial context"],
+)
+async def facility_monitors(
+    limit: Annotated[int, Query(ge=1, le=500)] = 100,
+) -> FacilityMonitorCollection:
+    return facility_monitor_collection(
+        load_events(),
+        load_facilities(),
+        limit=limit,
+    )
+
+
+@router.get(
+    "/facility-monitors/{monitor_id}",
+    response_model=FacilityMonitorSummary,
+    tags=["industrial context"],
+)
+async def facility_monitor(monitor_id: str) -> FacilityMonitorSummary:
+    monitor = next(
+        (
+            item
+            for item in build_facility_monitors(load_events(), load_facilities())
+            if item.monitor_id == monitor_id
+        ),
+        None,
+    )
+    if monitor is None:
+        raise HTTPException(status_code=404, detail="Facility monitor not found")
+    return monitor
 
 
 @router.post(
@@ -202,15 +588,95 @@ async def refresh_osm() -> FacilityRefreshResponse:
         ) from exc
 
 
+@router.post(
+    "/ingestion/land-cover/refresh",
+    response_model=LandCoverRefreshResponse,
+    tags=["ingestion"],
+)
+async def refresh_land_cover() -> LandCoverRefreshResponse:
+    try:
+        coordinates = {
+            land_cover_cell_key(event.latitude, event.longitude): (
+                event.latitude,
+                event.longitude,
+            )
+            for event in load_events()
+        }
+        response = await run_in_threadpool(
+            refresh_land_cover_contexts,
+            coordinates,
+        )
+        invalidate_event_cache()
+        return response
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"NASA GIBS land-cover refresh failed: {type(exc).__name__}",
+        ) from exc
+
+
 @router.post("/ingestion/firms/refresh", response_model=RefreshResponse, tags=["ingestion"])
 async def refresh_firms() -> RefreshResponse:
     try:
-        return await run_in_threadpool(refresh_source_files)
+        return await run_in_threadpool(run_firms_ingestion_cycle, "manual_api")
     except Exception as exc:
         raise HTTPException(
             status_code=502,
             detail=f"NASA FIRMS refresh failed: {type(exc).__name__}",
         ) from exc
+
+
+@router.post(
+    "/ingestion/firms/archive-current",
+    response_model=ArchiveResponse,
+    tags=["ingestion"],
+)
+async def archive_current_firms() -> ArchiveResponse:
+    settings = get_settings()
+    archived_at = datetime.now(UTC)
+    source_files = current_source_files(settings)
+    archived_files = await run_in_threadpool(
+        archive_source_files,
+        source_files,
+        settings,
+        archived_at,
+    )
+    invalidate_event_cache()
+    events = load_events(settings)
+    await run_in_threadpool(
+        record_archive_only_run,
+        started_at=archived_at,
+        finished_at=datetime.now(UTC),
+        files=[str(path) for path in source_files],
+        archived_files=archived_files,
+        normalized_events=len(events),
+        settings=settings,
+    )
+    return ArchiveResponse(
+        archived_at=archived_at,
+        archived_files=archived_files,
+        history=history_readiness(events, settings),
+    )
+
+
+@router.get(
+    "/operations/health",
+    response_model=OperationalHealth,
+    tags=["operations"],
+)
+async def ingestion_health() -> OperationalHealth:
+    return await run_in_threadpool(operational_health, load_events())
+
+
+@router.get(
+    "/operations/ingestion-runs",
+    response_model=IngestionRunCollection,
+    tags=["operations"],
+)
+async def ingestion_run_history(
+    limit: Annotated[int, Query(ge=1, le=250)] = 50,
+) -> IngestionRunCollection:
+    return ingestion_runs(limit=limit)
 
 
 @router.post(

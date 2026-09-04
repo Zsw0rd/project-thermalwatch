@@ -1,10 +1,10 @@
-# ThermalWatch AI — Project Log
+# AegisFire — Project Log
 
-This is the durable implementation record for ThermalWatch AI. It must be updated whenever the project is touched.
+This is the durable implementation record for AegisFire. It must be updated whenever the project is touched.
 
 ## Current status
 
-- **Stage:** Operational snapshot MVP with NASA FIRMS + OSM context; land cover and historical baselines pending
+- **Stage:** Operational ingestion telemetry and observed-window source discovery implemented; long-term baselines and reviewed evaluation pending
 - **Primary deliverable:** Explainable geospatial intelligence web dashboard
 - **Data mode:** API-first attributed source snapshots with automatic deterministic simulation fallback
 - **Architecture:** Next.js web client, FastAPI service, PostgreSQL/PostGIS, Python geospatial and tabular ML pipeline
@@ -13,7 +13,7 @@ This is the durable implementation record for ThermalWatch AI. It must be update
 
 ### Objective
 
-Turn the SIH26162 roadmap into a runnable, web-first ThermalWatch AI product and establish documentation that persists across future work.
+Turn the SIH26162 roadmap into a runnable, web-first AegisFire product and establish documentation that persists across future work.
 
 ### Areas touched
 
@@ -44,7 +44,7 @@ Turn the SIH26162 roadmap into a runnable, web-first ThermalWatch AI product and
 
 ### Objective
 
-Deliver the first runnable ThermalWatch AI web experience and establish the backend/container structure required for live geospatial pipelines.
+Deliver the first runnable AegisFire web experience and establish the backend/container structure required for live geospatial pipelines.
 
 ### Areas touched
 
@@ -147,3 +147,540 @@ Move the web-first MVP through ingestion, normalization, contextual enrichment, 
 - Land-cover context is intentionally reported as pending. Add an attributed India land-cover source and point/polygon sampling before enabling vegetation or agricultural classifications for operational data.
 - Bounding-box inclusion is not an India administrative-boundary join, and OSM representative-point proximity is not polygon containment.
 - The production alert table exists, but the current `/alerts` response is computed deterministically from the snapshot; persisting alert lifecycle and acknowledgement state is the next alerting stage.
+
+## 2026-09-02 — Operational map layout, clustering, and NASA imagery
+
+### Objective
+
+Repair the broken map workspace, move the interface toward a dense operations-software aesthetic, add an enabled geographic grid and satellite imagery, and make point behavior accurate and understandable across zoom levels.
+
+### Areas touched
+
+- `frontend/src/components/thermal-map.tsx`
+- `frontend/src/components/command-center.tsx`
+- `frontend/src/lib/api.ts`
+- `frontend/src/app/globals.css`
+- project log and research/reference glossary
+
+### Decisions and implementation details
+
+- Root cause of the broken map was layout propagation: the 350-row event queue expanded the CSS Grid row to roughly 22,000 px, forcing the WebGL canvas against its 4,096 px rendering limit and producing a blank or gray surface.
+- Bounded the desktop workspace to a viewport-aware 620–800 px height and gave the event queue, map, and evidence inspector independent overflow behavior.
+- Kept the three-panel event/map/evidence workspace visible from 1,120 px upward and repaired the clipped filter controls.
+- Replaced hundreds of HTML map markers with one clustered MapLibre GeoJSON source. Low zoom uses count-bearing clusters; clicking a cluster zooms to its expansion level; zoom 9+ shows exact original FIRMS coordinates with category styling.
+- Removed the unintended automatic fly-to that occurred when the application switched from simulation fallback to operational data. The initial view now remains at the India extent; only explicit event selection changes the camera.
+- Increased the operational request limit from 350 to 2,000 so the map can render the complete snapshot. The independently scrolling queue remains capped at 350 rows for predictable UI performance.
+- Added a visible, enabled-by-default 5-degree latitude/longitude grid with labels and a grid toggle. This display grid is separate from the backend's approximate 1 km co-observation heuristic.
+- Added enabled-by-default NASA GIBS satellite context: dated S-NPP VIIRS corrected-reflectance imagery over a Blue Marble fallback, plus a terrain/satellite toggle and explicit GIBS attribution.
+- Added a live zoom/cursor coordinate readout and retained exact `[longitude, latitude]` order throughout the API adapter and GeoJSON source.
+- Shifted the visual system toward dense operational software—graphite surfaces, squared panels, compact controls, persistent evidence inspector, stronger map framing, and reduced decorative spacing—without copying proprietary product assets or branding.
+
+### Verification
+
+- `npm run lint` — passed after the final map and source-label changes.
+- `npm run build` — passed with TypeScript and static generation after the MapLibre rewrite.
+- Local smoke check — web HTTP 200 and the API returned the complete 1,432-event `min_frp=1` snapshot to the map.
+- NASA GIBS Blue Marble India tile — HTTP 200, JPEG.
+- NASA GIBS S-NPP VIIRS true-color tile for 2026-09-01 — HTTP 200, JPEG.
+- The earlier layout reproduction measured a 22,071 px map shell and a 4,096 px-limited canvas; the bounding fix removed that unbounded sizing path.
+
+### Known limitations / next concrete task
+
+- Automated browser re-entry was blocked by the in-app browser's localhost URL policy after the local services restarted. Build validation and direct tile checks passed; final hands-on pan/zoom inspection should be performed in the already open local preview.
+- GIBS corrected-reflectance imagery is date-specific visual context and may include cloud cover or seams. It is not yet an analytical evidence channel.
+- Point clusters are intentionally visual aggregations at low zoom. Individual FIRMS coordinates become selectable after expansion or zoom 9; they should not be interpreted from a cluster centroid.
+
+## 2026-09-02 — Visible hotspot/grid rendering follow-up
+
+### Objective
+
+Resolve the live-browser failure where the redesigned command-center shell and map basemap appeared, but neither the geographic grid nor thermal hotspot symbols were visible.
+
+### Areas touched
+
+- `frontend/src/components/thermal-map.tsx`
+- `frontend/src/components/command-center.tsx`
+- `frontend/src/app/globals.css`
+- this project log and the research/reference glossary
+
+### Decisions and implementation details
+
+- Superseded the prior browser-QA limitation: the existing local tab was successfully claimed and the missing-overlay state was reproduced directly.
+- Confirmed that all 1,432 filtered FIRMS records reached the map component while the MapLibre GeoJSON source reported zero loaded/rendered features in this browser, despite the raster basemap loading normally.
+- Added an operational canvas overlay that projects every source `[longitude, latitude]` through the active MapLibre camera. The grid, facility context, exact selected-location ring, point blips, and clusters therefore share the same pan/zoom transform as the basemap.
+- Implemented deterministic screen-space aggregation: low zoom groups nearby projected points into count-bearing clusters; clicking a cluster recenters on its geographic centroid and expands by two zoom levels; zoom 9.5+ draws individual observations at their exact source coordinates.
+- Made the hotspot treatment deliberately unmistakable with high-contrast orange/red count clusters, category-colored point blips, glow halos, industrial-context outlines, and a white selected-event ring.
+- Replaced the remote vector style dependency with a controlled grayscale OSM raster base below the optional NASA GIBS imagery stack. This keeps the visual hierarchy predictable while retaining attribution.
+- Kept camera focus explicit. Filter changes only replace the displayed evidence set; they never move the map. Selecting a queue item remains the sole automatic fly-to action.
+
+### Verification
+
+- Live desktop QA — national view displayed the NASA imagery, cyan 5-degree grid and labels, facility context, and 27 visible hotspot clusters computed from all 1,432 loaded detections.
+- Cluster interaction QA — clicking a hotspot cluster expanded the map from zoom 3.4 to zoom 6.0 and recomputed 11 visible groups in the new viewport.
+- Filter stability QA — switching to the 91-event Industrial filter changed the displayed marker set to six visible groups while preserving the camera exactly at `Z 6.0 · 24.7388°N · 74.0723°E`.
+- Live browser diagnostics — no console warnings/errors and no map error event after the final rendering change.
+- `npm run lint` — passed with zero warnings.
+- `npm run build` — passed with TypeScript and static generation.
+
+### Known limitations / next concrete task
+
+- Cluster centers are display centroids for navigation, not event locations or incident claims; individual observations remain the authoritative coordinates.
+- The current imagery date is fixed to the bundled 2026-09-01 snapshot. A later iteration should bind GIBS imagery dates to the active evidence window and expose scene/cloud metadata.
+- OSM raster tiles and GIBS imagery are live visual dependencies. The event dataset remains deterministic offline, but a packaged offline basemap is still needed for a fully network-independent judging flow.
+
+## 2026-09-02 — Temporal intelligence, alert triage, and analyst workspaces
+
+### Objective
+
+Advance the web product beyond the map by adding multi-day history, explainable persistence/anomaly features, dedicated alert/source/analytics stages, and portable analyst evidence briefs.
+
+### Areas touched
+
+- official seven-day FIRMS fixtures and their source documentation under `backend/data/samples`
+- temporal fields and collection schemas in `backend/app/schemas/events.py`
+- FIRMS normalization, recurrence, anomaly, classification, alert, and refresh behavior in `backend/app/services/firms.py`
+- cluster/analytics aggregation in `backend/app/services/temporal.py`
+- event-history, cluster, and dashboard API surfaces in `backend/app/api/events.py`
+- cluster baseline persistence in `backend/app/services/persistence.py`
+- backend API tests
+- frontend API contracts/adapters, command-center navigation, alert/source/analytics workspaces, evidence panel, and styling
+- README, research/reference glossary, and this living log
+
+### Decisions and important implementation details
+
+- Added official NOAA-20, NOAA-21, and S-NPP seven-day South Asia feeds as pinned offline fixtures. The public refresh path now targets these three files, while exact event fingerprints deduplicate overlap with retained 24-hour files.
+- Kept the map operationally focused on the latest 24 hours relative to the snapshot's newest acquisition, while alerts, clusters, history, and analytics use the full retained temporal window. Relative-to-data filtering keeps the demo deterministic after the wall clock advances.
+- Continued the approximate two-decimal coordinate cell for temporal grouping, but replaced raw degree-distance calculations with Haversine metres for spatial stability.
+- Added active days, first/last seen, median FRP, MAD, daily history, anomaly status/score, and explicit model/feature versions to normalized evidence.
+- Defined the configurable persistence score as 45% active-day ratio, 20% density, 20% spatial stability, and 15% multi-sensor support. Persistent candidates require at least four active days, a five-day-or-longer observed window, and score >= 0.65.
+- Added a robust deviation gate requiring at least five detections and MAD >= 0.1 MW; the elevated label requires robust z >= 3 and FRP at least 5 MW above the observed median.
+- Added alert reasons for elevated industrial-context candidates and persistent unmapped candidates. Every alert and cluster response retains human-review and non-confirmation language.
+- Added `/events/{event_id}/history`, `/clusters`, `/clusters/{cluster_id}`, and `/analytics/dashboard` APIs, plus persistence baseline writes.
+- Made all four header stages functional: Overview, Events/alert triage, Sources/provenance, and Analytics/persistent-cluster ranking. Notification and Sources controls navigate to the corresponding stage.
+- Added client-side Markdown evidence-brief download containing the selected candidate's coordinates, measurements, temporal context, evidence sources, model/feature versions, and interpretation boundary.
+
+### Verification performed and result
+
+- Official seven-day fixture audit — 3,978 NOAA-20, 3,271 NOAA-21, and 3,717 S-NPP source rows; retained file sizes 328,749, 270,586, and 300,071 bytes.
+- Running API smoke check — latest-24-hour map total 759; full temporal snapshot 4,143 events in 2,435 cells; 31 persistent candidates, 212 recurring candidates, two elevated clusters, one unmapped persistent candidate, and 50 review alerts.
+- Event-history smoke check — returned the expected representative record, observation window, temporal series, robust features, provenance context, and explicit non-confirmation evidence.
+- `.venv\\Scripts\\python.exe -m ruff check app tests` — passed.
+- `.venv\\Scripts\\python.exe -m pytest -q` — 12 tests passed; one upstream Starlette/httpx TestClient deprecation warning remains.
+- `npm run lint` — passed.
+- `npm run build` — passed with strict TypeScript and Next.js static generation.
+- Live browser QA — Overview loaded the current 759-event map window with temporal evidence; Events rendered 50 alert records; Sources rendered four attributed evidence-channel cards and current limitations; Analytics rendered eight inclusive calendar-date activity rows and 12 ranked persistent candidates.
+- Live browser diagnostics after navigating all new stages — no fresh warnings or errors.
+
+### Known limitations / next concrete task
+
+- The retained rolling seven-day feed touches eight UTC calendar dates because its edge dates are partial. API responses expose exact start/end values; it must not be presented as eight complete days of coverage.
+- Seven-day median/MAD features are observed-window comparisons, not learned 30/90-day facility baselines. The next temporal stage is scheduled archival ingestion and season-aware baselines.
+- The approximate coordinate cell is deterministic but can split one physical source or merge adjacent sources. Replace it with metric DBSCAN or HDBSCAN and evaluate against labeled sites before claiming source-level accuracy.
+- Land-cover sampling, weather/lightning corroboration, administrative-boundary clipping, alert acknowledgement state, and analyst feedback storage remain unimplemented.
+- Alert and classification metrics are rule outputs on unlabeled evidence, not measured model performance.
+
+## 2026-09-02 — Facility monitoring, historical playback, and alert lifecycle
+
+### Objective
+
+Complete three additional roadmap stages as functional web workflows: facility-centric thermal monitoring, historical observation playback, and analyst-controlled alert status.
+
+### Areas touched
+
+- alert, playback, and facility-monitor response schemas
+- deterministic alert workflow state service under `backend/app/services/alert_workflow.py`
+- facility aggregation service under `backend/app/services/facility_monitor.py`
+- cumulative playback aggregation in `backend/app/services/temporal.py`
+- FastAPI facility-monitor, playback, and alert-update endpoints
+- backend API tests
+- frontend types, API adapter/mutation client, primary navigation, alert controls, Monitor workspace, Playback workspace, and responsive styling
+- README, research/reference glossary, and this living log
+
+### Decisions and important implementation details
+
+- Added a durable local alert-state overlay in the ignored `backend/data/cache` directory so acknowledgement works in deterministic offline mode without requiring PostgreSQL. The existing PostGIS alert schema remains the production persistence target.
+- Implemented the four-state review lifecycle `requires_analyst_review → acknowledged → investigating → closed`, with reopening back to required review. Reviewer identity, note, and UTC timestamp are stored, but workflow state never changes classification confidence or source evidence.
+- Built facility monitors only from FIRMS events that already meet the conservative industrial-context rule. Each monitor preserves the exact OSM feature, daily FRP history, sensor/cluster counts, active days, median/maximum/latest FRP, persistence score, review-alert count, and an explicit association caveat.
+- Created stable opaque monitor IDs from OSM identifiers so facility detail routes do not expose slash-containing OSM keys as path segments.
+- Added daily playback frames with event IDs, detection/cell/new-cell counts, high-FRP counts, daily mean FRP, and cumulative as-of-date persistent-cell counts. Persistence in playback is calculated only from dates observed up to the selected frame.
+- Loaded the full retained event window separately from the 24-hour operational map window so playback can display each exact source observation while the default map remains focused on current evidence.
+- Added `Monitor` and `Playback` to primary navigation. Facility selection updates the site chart/evidence in place; playback includes first/last, play/pause, and date-slider controls over the existing exact-coordinate map renderer.
+- Upgraded alert rows with persistent Acknowledge, Investigate, Close, and Reopen actions plus live workflow counts.
+
+### Verification performed and result
+
+- Running API smoke check — eight UTC calendar-date playback frames over 4,143 events and 185 facility monitors; the first ranked monitor was an elevated-observed-FRP candidate in the retained evidence.
+- `.venv\\Scripts\\python.exe -m ruff check app tests` — passed.
+- `.venv\\Scripts\\python.exe -m pytest -q` — 15 tests passed, including alert state round-trip/reset, playback chronology/totals, and facility detail/caveat validation; one upstream Starlette/httpx warning remains.
+- `npm run lint` — passed.
+- `npm run build` — passed with strict TypeScript and Next.js static generation.
+- Live browser facility QA — 100 ranked monitors loaded; selecting a different facility updated its name, status, four evidence metrics, and two-series FRP chart.
+- Live browser playback QA — the latest frame displayed 568 detections, 323 newly observed cells, 42 persistent cells as-of-date, and 31 high-FRP signals; play advanced from frame one to frame two.
+- Live browser alert QA — acknowledgement changed the first item to `acknowledged`, updated counts from 50/0 to 49/1, and exposed `Investigate` as the next action; the QA item was then reset to its original state.
+- Browser diagnostics — no fresh warnings or errors across Monitor, Playback, and Events.
+
+### Known limitations / next concrete task
+
+- Local alert workflow storage is single-process file state. Production should persist reviews in PostGIS with authenticated user IDs, optimistic concurrency, and an audit history rather than overwriting the current state.
+- Facility association still uses representative-point proximity, not facility polygon containment. A mapped nearby feature can be unrelated to an observation.
+- The retained seven-day window supports demonstration playback, not seasonal analysis. Scheduled archival ingestion is required for 30/90-day playback and learned baselines.
+- Playback is observation timing, not a fire-spread model. Cluster evolution metrics need validated spatial clustering before area-growth claims are introduced.
+- **Superseded:** land-cover enrichment was pending at this checkpoint and is implemented in the next entry. Role-based access, analyst notes UI, notification delivery, and measured model evaluation remain future stages.
+
+## 2026-09-02 — MODIS land-cover intelligence stage
+
+### Objective
+
+Add an authoritative, keyless land-cover evidence channel to the operational pipeline so vegetation and agricultural candidates are explainable, visible on the map, and available offline.
+
+### Areas touched
+
+- `backend/app/services/land_cover.py`
+- `backend/app/services/firms.py`
+- `backend/app/api/events.py`
+- `backend/app/schemas/events.py`
+- `backend/data/samples/modis_igbp_land_cover_2024.json`
+- backend dependencies and API tests
+- frontend event contracts/adapters, map layer, evidence panel data, source registry, controls, and styles
+- research/reference glossary and this project log
+
+### Decisions and important implementation details
+
+- Added the official NASA EOSDIS GIBS `MODIS_Combined_L3_IGBP_Land_Cover_Type_Annual` raster, backed by the MCD12Q1.061 annual product, using the latest advertised complete layer date of 2024-01-01.
+- Implemented standard Web Mercator slippy-tile and pixel addressing at GIBS matrix zoom 8. The refresh service groups requested cells by tile, downloads each tile once, samples the official categorical RGB, and maps it back to an IGBP class and a conservative AegisFire context group.
+- Sampled all 2,435 approximate thermal cells across 153 tiles and retained the attributed result as a deterministic offline JSON fixture. Cache-first refresh behavior allows later updates without making the judging flow depend on NASA availability.
+- Added `land_cover` to every normalized event while preserving provider, product, observation date, IGBP value, class label, native 500 m resolution, sampling method, and source URL. Cluster evidence and GeoJSON properties also expose the representative land-cover context.
+- Kept facility proximity first and persistent-unmapped recurrence second in classification precedence. Only remaining cropland and vegetation pixels become agricultural-burning or vegetation-fire candidates; the annual class is never presented as source or incident confirmation.
+- Added an API source registry entry, a dedicated `/api/v1/land-cover/source` metadata surface, and a bounded `/api/v1/ingestion/land-cover/refresh` operation that invalidates the normalized event cache after refresh.
+- Added an enabled-by-default MODIS raster overlay, visible compact legend, independent land-cover toggle, source-registry card, event search by land-cover class, and per-event evidence item. The layer sits beneath the synchronized hotspot/grid canvas, so classification context does not hide exact detections.
+
+### Verification
+
+- Full enrichment result: 4,143 observations with land-cover context across 2,435 cells; classifications are 1,816 vegetation, 1,473 agricultural, 706 industrial, and 148 unknown.
+- Land-cover groups in the source evidence are 2,114 vegetation, 1,648 cropland, 293 built-up, 65 barren, and 23 water observations.
+- `ruff check app tests` — passed.
+- `pytest -q` — 17 tests passed, including source attribution, feature-version, metadata endpoint, and a known Web Mercator tile/pixel position; one upstream Starlette TestClient deprecation warning remains.
+- `npm run lint` — passed.
+- `npm run build` — passed with TypeScript and static page generation.
+- Live browser QA — 759 current-window detections rendered as 30 visible national-view groups; grid, satellite imagery, MODIS overlay, land-cover legend, category counts, and evidence classifications were visible; no map error was reported.
+- Toggle QA — hiding land cover changed the raster visibility to `none` and removed the legend; enabling it restored both. The source workspace displayed all five evidence channels and the updated limitations.
+
+### Known limitations / next concrete task
+
+- The land-cover evidence is annual 2024 context at nominal 500 m resolution, while the retained thermal observations are from 2026. It can be stale, class boundaries can contain mixed pixels, and rendered color sampling is less direct than reading the source science raster.
+- The GIBS raster remains a live visual dependency, although all current event classifications retain their sampled offline context.
+- Agriculture and vegetation labels are weak candidate labels only. Measured precision/recall requires incident or expert-reviewed ground truth and spatially separated validation.
+- The next backend intelligence stage is a 30/90-day historical store and per-cell/per-facility seasonal baseline; the current seven-day feed is insufficient for learned normal-behavior claims.
+
+## 2026-09-02 — AegisFire repository-wide identity migration
+
+### Objective
+
+Rename the complete product and repository identity from its former name to `AegisFire` across the web experience, backend, runtime configuration, package metadata, documentation, exports, and GitHub repository.
+
+### Areas touched
+
+- web header, browser metadata, generated evidence-brief name/content, API error/source copy, demo evidence, and demo identifiers
+- FastAPI application/service identity, Python distribution metadata, package description, and outbound source-client user agents
+- Docker Compose project, PostgreSQL database/user/volume defaults, Alembic connection default, and environment template
+- repository instructions, README, original SIH roadmap, research/reference glossary, and this project log
+- GitHub repository name, description, origin URL, and existing pull request context
+
+### Decisions and important implementation details
+
+- `AegisFire` is the exact product display name; `AEGISFIRE` is used only for the compact uppercase masthead.
+- Machine-readable package and service identifiers use `aegisfire-api` and `aegisfire-web`; Python-generated metadata moved to `aegisfire_api.egg-info`.
+- Demo intelligence identifiers moved from the former product prefix to `AF-*`. NASA FIRMS-derived `NF-*` display IDs and domain terms such as `thermal_events` remain unchanged because they describe their data rather than the old brand.
+- Docker Compose now has the explicit project name `aegisfire` and fresh defaults for the database, role, password, connection URL, and `aegisfire_postgres` volume.
+- Existing databases and the earlier named Docker volume are not deleted. Explicit environment values continue to override the new defaults, allowing a deliberate migration instead of destructive implicit data movement.
+- Historical implementation entries retain their technical chronology while using the current product name consistently. Research claims and citations were not otherwise changed by the rename.
+
+### Verification performed and result
+
+- Repository-wide case-insensitive search found no remaining former-name or former-package identifiers in tracked source, configuration, documentation, or fixtures.
+- Reinstalled the editable backend distribution successfully as `aegisfire-api==0.1.0` and removed the obsolete distribution entry from the local virtual environment.
+- `.venv\Scripts\python.exe -m ruff check app tests alembic` — passed.
+- `.venv\Scripts\python.exe -m pytest -q` — 17 tests passed, including explicit AegisFire health/API identity checks; one upstream Starlette TestClient deprecation warning remains.
+- `npm run lint` — passed under the `aegisfire-web` package identity.
+- `npm run build` — passed with TypeScript and static generation.
+- `docker compose config --quiet` — passed with the renamed project/database defaults.
+- Live browser QA — page title `AegisFire — Geospatial Intelligence`, masthead `AEGISFIRE`, operational NASA FIRMS mode restored after reload, no former name visible in the page, and no map error.
+
+### Known limitations / next concrete task
+
+- Deployments with an existing explicit `DATABASE_URL` or PostgreSQL environment retain those values until an operator elects to migrate them.
+- The active local checkout directory is not moved while the desktop task and development servers are using it; the repository, application, packages, runtime defaults, and remote identity are renamed.
+- Continue with the planned 30/90-day archival and seasonal-baseline stage under the AegisFire identity.
+
+## 2026-09-03 — FIRMS history readiness and India ADM0 containment
+
+### Objective
+
+Advance the next backend and web stages together: preserve every successful FIRMS refresh as immutable history, disclose honest 30/90-day baseline readiness, and replace rectangular national scoping with an attributed India administrative boundary.
+
+### Areas touched
+
+- runtime settings, environment template, ignored archive storage, and Docker archive mount
+- normalized event, refresh, archive, historical-readiness, and administrative-area contracts
+- new boundary and history-archive services
+- FIRMS and OSM ingestion/filtering, cache signatures, and source registry
+- geography, readiness, and manual archive API routes
+- pinned `backend/data/samples/india_adm0_geoboundary.geojson` offline fixture
+- frontend API adapter/types, per-event evidence, map boundary layer, Sources workspace, Analytics readiness panel, playback map, status copy, and responsive styles
+- backend unit/API coverage, README, research glossary, and this living log
+
+### Decisions and important implementation details
+
+- Successful FIRMS refreshes now copy each raw CSV into `data/archive/firms/<UTC-date>/<sha256-prefix>/<original-name>`. Copying is idempotent for identical bytes and retains changed rolling snapshots independently.
+- Event loading combines archived and current CSVs, then applies the existing stable source/satellite/time/coordinate fingerprint so overlap never inflates normalized counts. Raw fields remain server-side on every retained record.
+- Added `/history/readiness` with distinct acquisition dates, inclusive span, unique event/cell counts, archive/seed file counts, 30/90-day progress, methodology, and caveats. The current eight observed dates are explicitly `insufficient_history`; no learned or seasonal baseline is claimed.
+- Added `/ingestion/firms/archive-current` for a network-free first archive and made live FIRMS refresh archive automatically before normalization.
+- Pinned the full-resolution geoBoundaries gbOpen India ADM0 MultiPolygon and implemented typed, dependency-free point-in-polygon containment with hole and boundary-segment handling.
+- FIRMS points and OSM representative points are retrieved through their existing broad bounding extent, then clipped to the same polygon. Event evidence preserves boundary ID, represented year, method, license, and exact source URL.
+- The web map renders the authoritative scope outline above imagery and passes it through both Overview and Playback. Sources and Analytics now expose geography provenance and archive readiness directly to analysts.
+- Corrected the analytics methodology copy to acknowledge its annual MODIS contextual evidence while continuing to disclaim trained-ML and incident-confirmation claims.
+
+### Verification performed and result
+
+- Boundary checks retained New Delhi, Bengaluru, and Port Blair and excluded Lahore, Dhaka, and Colombo.
+- Retained offline result after clipping: 1,566 unique FIRMS detections across 922 cells and eight UTC dates; 209 detections are in the latest 24-hour window. Categories are 794 agricultural, 454 industrial, 256 vegetation, and 62 unknown candidates.
+- OSM containment retained 14,543 supported representative points; current derived outputs include 17 persistent candidates, 77 recurring candidates, one elevated cluster, 14 review alerts, and 125 facility monitors.
+- Historical readiness is 26.7% toward 30 observed dates and 8.9% toward 90, correctly reported as insufficient history.
+- Seeded the first local immutable archive through the network-free ingestion route: six current NASA CSV files were retained without changing the eight-date readiness count.
+- `.venv\Scripts\python.exe -m ruff check app tests alembic` — passed.
+- `.venv\Scripts\python.exe -m pytest -q` — 21 tests passed, including boundary truth points, all-event/all-facility containment, archive idempotence/versioning, geography attribution, and readiness disclosure; one upstream Starlette/httpx warning remains.
+- `npm run lint` — passed.
+- `npm run build` — passed with strict TypeScript and Next.js static generation.
+- Live browser Overview QA — 173 in-scope current-window detections rendered as 15 national-view marker groups; grid, VIIRS/MODIS imagery, India ADM0 layer, and exact per-event administrative evidence were active with no map error.
+- Live browser Sources/Analytics QA — seven attributed source cards rendered, the seeded archive updated to six immutable files, and the readiness panel displayed 26.7%/8.9% progress with the insufficient-history disclaimer.
+- Browser attribution/diagnostics — the map control included `geoBoundaries gbOpen · CC0 1.0`; no warning or error logs were emitted.
+
+### Known limitations or next concrete task
+
+- Runtime history still has only eight distinct acquisition dates until successful daily refreshes accumulate or an authenticated Area API backfill is performed; missing days are never interpolated.
+- The boundary represents 2014 and is an open administrative geometry, not a territorial claim or authoritative survey boundary.
+- OSM ways and relations still use representative points, so national containment and facility distance can differ from full-polygon results near borders or large sites.
+- The next intelligence stage is metric spatial clustering and empirical validation against reviewed facilities before approximate cells can be treated as source-level entities.
+
+## 2026-09-03 — Metric clustering diagnostics and analyst validation stage
+
+### Objective
+
+Replace the rounded-degree analytical grouping with deterministic metric clustering, make grouping quality inspectable, and add a web-first human review surface that can begin building a versioned validation set without claiming incident confirmation.
+
+### Areas touched
+
+- backend clustering configuration, normalized-event/cluster/diagnostic/review contracts, FIRMS pipeline, temporal aggregation, API routes, and source registry
+- new metric clustering and append-only cluster-review services
+- backend clustering, pipeline, API, and review-audit tests
+- frontend API adapter/types, Analytics diagnostics, `Validate` navigation/workspace, selected-cluster map focus, and responsive operational styling
+- environment template, README, research/reference glossary, and this living log
+
+### Decisions and important implementation details
+
+- Replaced two-decimal latitude/longitude grouping with deterministic DBSCAN over exact Haversine distances. The current starting configuration is a 750 m epsilon and two observations including self for a core point; both values remain explicit engineering assumptions.
+- Added a conservative spatial bucket index before exact distance checks, avoiding a full all-pairs scan while ensuring candidate neighbouring buckets are searched across cell boundaries. Sorted event IDs make expansion and ambiguous-border assignment reproducible for identical evidence.
+- Preserved DBSCAN noise as explicit singleton analytical clusters with role `noise`; these points remain available to map, playback, triage, and review instead of being dropped. Density-supported events expose `core` or `border` roles, shared cluster radius, epsilon, minimum density, and clustering method.
+- Derived cluster IDs from the sorted member event IDs. This makes identical inputs reproducible but intentionally exposes a documented limitation: IDs can change when later archives alter membership.
+- Bumped the rule contract to `rules_temporal_metric_v3` and the feature contract to `firms_osm_modis_igbp_india_adm0_metric_dbscan_v4`; preserved raw FIRMS fields server-side.
+- Added `/clustering/diagnostics` with density/noise counts, core/border counts, multi-event/singleton counts, supported-cluster radius distribution, and a direct comparison to the superseded rounded grid.
+- Added append-only JSON review-audit storage in the ignored cache directory plus `GET /validation/reviews` and `POST /clusters/{cluster_id}/reviews`. Every record snapshots the visible evidence, proposed category/classification, model/feature versions, analyst label/note/identity, and UTC time; `incident_confirmation` is structurally fixed to `false`.
+- Added a `Validate` workspace with ranked clusters, a selected-cluster satellite/grid map, density/FRP/recurrence metrics, source-backed evidence packet, six bounded context labels, notes, and prior-review display. The selected candidate now opens at its source coordinates rather than the national map extent.
+- Kept the eight-date history explicitly short-window and non-seasonal. No classifier training, precision/recall, confusion matrix, or accuracy claim was introduced without reviewed labels.
+
+### Verification performed and result
+
+- Current pinned evidence: 1,566 detections grouped into 777 analytical clusters versus 922 rounded-grid cells. DBSCAN produced 256 density-supported multi-event clusters containing 1,045 core events and retained 521 noise singletons; no border events occur under the current two-sample threshold.
+- Supported-cluster radii are 190.89 m median, 724.97 m at P95, and 1,849.78 m maximum. The maximum can exceed epsilon through DBSCAN density-connected chains and is disclosed in API caveats.
+- Current downstream outputs are 14 persistent candidates, 71 recurring candidates, and 14 review alerts.
+- `.venv\Scripts\python.exe -m ruff check app tests alembic` — passed.
+- `.venv\Scripts\python.exe -m pytest -q` — 27 tests passed, including Haversine plausibility, input-order determinism, core/border/noise behavior, singleton retention, diagnostics invariants, and append-only evidence snapshots; one upstream Starlette/httpx deprecation warning remains.
+- `npm run lint` — passed.
+- `npm run build` — passed with strict TypeScript and Next.js static generation.
+- `docker compose config --quiet` — passed.
+- Live browser Analytics QA — rendered 777 clusters, density/noise diagnostics, the 725 m rounded P95 and 191 m rounded median, the -145 cluster delta versus 922 legacy cells, and the unchanged insufficient-history disclosure.
+- Live browser Validate QA — rendered 100 ranked review candidates; the first cluster displayed 17 detections from three VIIRS sources, a 665 m radius, FRP metrics, density roles, attributed satellite/grid map, evidence packet, six analyst labels, and the non-confirmation boundary. Initial map focus resolved to the selected 25.94°N, 72.19°E evidence location.
+
+### Known limitations or next concrete task
+
+- The 750 m/two-sample configuration needs a reviewed, spatially separated validation set before it can be called calibrated. The new workspace enables collection, but it begins with zero analyst records.
+- With `min_samples=2`, every member of a supported cluster is a core point, so border-role diagnostics remain zero. Parameter sweeps should compare two- and three-sample density requirements by sensor, geography, and label quality.
+- DBSCAN density chains can produce clusters wider than epsilon; the current maximum is about 1.85 km. Add diameter/elongation diagnostics and split-review support before treating every cluster as one physical source.
+- Membership-derived IDs can change as history accumulates. Production review persistence needs cluster-lineage reconciliation, authenticated users, optimistic concurrency, and PostGIS audit tables.
+- Review labels are local context assessments, not ground truth. The next evaluation stage is a spatially separated reviewed subset, label-agreement checks, parameter sensitivity analysis, and only then a rules baseline/confusion matrix.
+- The archive still has eight observed dates, so 30/90-day and seasonal modeling remain blocked by evidence coverage rather than implementation.
+
+## 2026-09-03 — Governed model-readiness and GPU benchmark stage
+
+### Objective
+
+Advance the classification roadmap without inventing accuracy: create a reproducible tabular training/evaluation pipeline, use the available local GPU for the suitable candidate, enforce spatially separated evaluation and analyst-label gates, and make the full model state inspectable in the web command center.
+
+### Files or areas touched
+
+- backend model settings, schemas, API routes, feature extraction/readiness service, and tests;
+- `ml/train_tabular.py`, ML unit tests, ignored artifact policy, and model-artifact documentation;
+- deterministic `backend/data/samples/model_benchmark_report.json` plus sample-data provenance notes;
+- frontend domain types, API adapters, Models navigation/workspace, and responsive command-center styling;
+- optional ML dependency group, environment template, README, research/reference glossary, and this living log.
+
+### Decisions and important implementation details
+
+- Built `cluster_tabular_features_v1`, a deterministic 41-feature contract spanning thermal intensity, robust anomaly state, recurrence, sensor support, DBSCAN geometry, mapped-facility proximity/type, MODIS land-cover context, confidence, day/night state, and cyclic calendar features. Raw latitude and longitude are excluded from the model inputs.
+- Added a production-readiness gate that accepts only the latest eligible analyst context label for each cluster. The current configurable minimum is 60 reviewed clusters, 10 per class, and three spatial blocks per class; uncertain and data-quality-exclusion reviews stay auditable but cannot train a target.
+- Implemented reproducible model comparison for the current rules reference, standardized logistic regression, class-balanced random forest, and XGBoost. Complete two-degree spatial groups are held out with seed 26162, and the report asserts a zero-size train/test group intersection.
+- Detected the system NVIDIA GeForce RTX 3060 and trained XGBoost using the documented histogram/CUDA interface. The report records `cuda:0`, 12,288 MiB, driver 595.79, library versions, training times, data fingerprint, feature names, confusion matrices, and SHA-256 artifact hashes.
+- Kept trained binaries in ignored `ml/models/`. The bundled JSON report is the inspectable and testable product artifact; no estimator is automatically loaded into the API.
+- Kept the production gate closed because there are zero eligible analyst labels and only eight observed UTC dates. The existing `rules_temporal_metric_v3` classifier remains operational.
+- Labeled every development score as held-out weak-label agreement. Random forest and XGBoost each reproduced the weak rules at 100% balanced agreement and macro F1; that circular result is prominently disclosed as not real-world accuracy. Logistic regression reached 94.7% balanced agreement and 94.6% macro F1, while the intentionally simpler rules reference reached 78.9% and 74.0%, respectively.
+- Added `/models/readiness` and `/models/benchmark`, then built a Palantir-inspired Models workspace showing the blocked gate, per-class review progress, GPU provenance, split sizes, candidate table, selected-candidate confusion matrix, feature signals, and label/split policies.
+
+### Verification performed and result
+
+- Explicit CUDA benchmark completed without CPU fallback: 777 clusters, 41 features, 61 spatial groups, 570 training samples in 45 groups, 207 held-out samples in 16 groups, and zero overlapping groups. XGBoost resolved to `cuda:0` and trained in 2.48 seconds on this run.
+- `.venv\Scripts\python.exe -m ruff check app tests alembic ..\ml` — passed.
+- `.venv\Scripts\python.exe -m pytest -q` — 31 backend tests passed; one upstream Starlette/httpx deprecation warning remains.
+- `backend\.venv\Scripts\python.exe -m pytest ml\tests -q` from the repository root — two ML split/metric tests passed.
+- `npm run lint` — passed.
+- `npm run build` — passed with strict TypeScript, Next.js compilation, and static page generation.
+- `docker compose config --quiet` — passed.
+- Running API smoke check — readiness returned `blocked_insufficient_reviewed_labels` with `0/60`; benchmark returned `development_only`, 777 samples, XGBoost on `cuda:0`, and `production_eligible=false`.
+- Live browser QA — the Models workspace loaded from the operational API and rendered the `0/60` blocked gate, all four `0/10` class gates, RTX 3060 / `cuda:0` provenance, 777-cluster split telemetry, four-candidate comparison, 4×4 confusion matrix, top feature signals, and explicit non-accuracy/deployment warnings.
+
+### Known limitations or next concrete task
+
+- There are no eligible analyst labels. The 100% random-forest/XGBoost figures are weak-rule reproduction and must not be used in product, scientific, or safety claims.
+- The retained evidence spans only eight UTC dates. Longer 30/90-day archival coverage, seasonal representation, targeted known-facility samples, and independent expert review are still required.
+- Two-degree grouped holdout blocks reduce direct spatial leakage but need sensitivity testing against finer/coarser groups, leave-region-out validation, temporal holdout, and facility-lineage grouping.
+- Class support is imbalanced (520 agricultural weak labels versus 27 unknown). Future reviewed sampling should be stratified by class, spatial block, sensor, season, persistence regime, and facility type.
+- Before any production model stage, add reviewer agreement/quality controls, calibration assessment, probability reliability plots, parameter sweeps, explicit acceptance thresholds, signed model registry metadata, rollback support, and monitored shadow inference.
+
+## 2026-09-03 — Explainable evidence graph, clustering sensitivity, and model registry stages
+
+### Objective
+
+Advance roadmap Phases 11, 20, and 21 without deploying an unvalidated classifier: make per-event reasoning inspectable, quantify how DBSCAN behavior changes across plausible parameters, and introduce a versioned registry/promotion boundary in both the API and primary web experience.
+
+### Files or areas touched
+
+- backend evidence-graph and clustering-sensitivity services;
+- model registry construction, API schemas/routes, package source metadata, and backend tests;
+- frontend types, API adapters, asynchronous evaluation loading, event evidence panel, Analytics sensitivity table, Models registry, governance export, and responsive styling;
+- README, research/reference glossary, and this living log.
+
+### Decisions and important implementation details
+
+- Added an attributed evidence graph for every operational event. FIRMS measurement, recurrence, metric grouping, OSM proximity/absence, and annual MODIS context become typed nodes linked to the candidate classification by `supports`, `contextualizes`, or `limits`; a mandatory boundary node explicitly rejects incident, source, ownership, and causation claims.
+- Kept explainability faithful to the serving rules model. SHAP was not added because no trained candidate is operational, so model-specific attribution would misrepresent the current decision path.
+- Added an eight-variant Haversine DBSCAN sweep across 500, 750, 1,000, and 1,500 m epsilon values at two- and three-observation minimum densities. Each row reports cluster/support/noise counts, core/border roles, supported radii, largest cluster, and pairwise co-membership Jaccard relative to the operational control.
+- Cached sensitivity results by the immutable observation tuple and loaded the report through a separate frontend request. The primary FIRMS map never waits for this evaluation workload and the sweep never mutates operational cluster membership.
+- Added a model registry with lifecycle, serving flag, label provenance, feature version, device, artifact filename/hash, metric scope, promotion state, rollback target, and a five-step promotion policy. Exactly one model—`rules_temporal_metric_v3`—is serving.
+- Kept the rules benchmark reference distinct from the serving rules engine. Logistic regression, random forest, and XGBoost remain non-serving development artifacts blocked by the reviewed-label gate.
+- Added a downloadable Markdown governance brief generated locally from the loaded registry/readiness state without introducing server-side secrets or external dependencies.
+
+### Verification performed and result
+
+- New backend service tests — three passed for attributed/connected/non-confirmatory evidence graphs, the operational sensitivity control invariant, and one-serving-model registry enforcement.
+- Full backend suite — 35 tests passed with one upstream Starlette/httpx deprecation warning.
+- Python lint — passed across application, tests, Alembic, and ML code.
+- Frontend lint — passed after removing the only unused type import; frontend production build passed strict TypeScript and static generation.
+- API smoke — eight sensitivity variants returned; the control co-membership score is 1.0; the selected event returned seven nodes/six edges; the registry returned five entries with only `rules_temporal_metric_v3` serving. The cached sensitivity request itself completed in approximately 351 ms after cold event loading.
+- Live browser Overview QA — the selected event rendered six attributed graph links, the rules confidence/version, and the explicit non-proof boundary.
+- Live browser Analytics QA — all eight DBSCAN variants rendered with the 750 m/two-sample control highlighted; values included 33.3% control noise and 97.8% co-membership for the 1,000 m/two-sample variant.
+- Live browser Models QA — the registry displayed one serving version, four non-serving evaluation/development entries, artifact digest prefixes, the rollback target, five promotion gates, and the governance export control.
+
+### Known limitations or next concrete task
+
+- Evidence-graph relationships explain deterministic application logic; they are not learned feature attributions, causal inference, or proof that a mapped context produced a thermal signal.
+- Co-membership similarity measures agreement with the current grouping, not correctness. Parameter selection remains blocked on reviewed source labels, longer temporal coverage, and region/season holdouts.
+- Artifact hashes are integrity identifiers in a local report, not signed provenance. Production registry storage needs immutable database records, signatures, authenticated approvals, and audit events.
+- Shadow inference is a documented promotion requirement but is not enabled because the available candidate models were trained on weak labels. Enabling it before reviewed evaluation would add operational complexity without reliable evidence.
+- The next safe stages are reviewer-quality metrics and agreement workflows, structured acceptance criteria, calibrated probability evaluation after real labels arrive, and long-window archive automation.
+
+## 2026-09-03 — Operational ingestion health and unknown-source fingerprints
+
+### Objective
+
+Advance two immediately buildable roadmap stages together: make recurring FIRMS ingestion observable and schedulable, then turn retained multi-day evidence into stable, explainable thermal-source fingerprints and a web-first unresolved-source discovery queue.
+
+### Files or areas touched
+
+- backend settings, operational/fingerprint schemas, API routes, package metadata, and tests;
+- new ingestion-operations service and one-shot/looping FIRMS scheduler job;
+- new thermal-source fingerprint and unknown-discovery service;
+- Docker Compose live-ingestion profile and environment template;
+- frontend domain types, API adapters, Discover workspace, Sources operational-health panel, complete mobile navigation, and responsive styling;
+- README, research/reference glossary, and this living log.
+
+### Decisions and important implementation details
+
+- Added an opt-in scheduler entry point, `python -m app.jobs.firms_refresh --loop`, with a configurable six-hour default interval. Each cycle continues to use the existing authenticated Area API path when a MAP_KEY exists and the attributed official public feeds otherwise.
+- Wrapped manual and scheduled refreshes in a shared audit boundary. Successes record input/cache paths, immutable archive outputs, normalized count, trigger, source mode, and UTC start/finish; failures record the exception type but never credentials or raw exception messages.
+- Kept the local audit deterministic and inspectable as JSON while adding both a thread lock and an exclusive lock file so API and scheduler processes on one host cannot overwrite each other's append operations. This is still a local MVP store, not a distributed production ledger.
+- Added `/operations/health` and `/operations/ingestion-runs`. Health reports raw-file origin/freshness, latest-observation lag, 30/90-day evidence readiness, archive count, cadence, last run, and actionable issues. Bundled evidence without a recorded refresh is explicitly `demo_ready`, not falsely `healthy`.
+- Added a deterministic `thermal_source_fingerprint_v1` for every analytical cluster. The profile preserves FRP median/P90/maximum/MAD, typical UTC hours, day/night share, active dates and gaps, sensor support, spatial radius/stability, recurrence, maturity, facility proximity, annual land cover, evidence sentences, and a stable content-derived fingerprint ID.
+- Added `/source-fingerprints` plus the focused `/discoveries/unknown` queue. Unknown-source priority combines recurrence, active-day coverage, sensor corroboration, spatial stability, and bounded maximum FRP. The 0.65 priority threshold is an engineering triage assumption; every response states that the score is not source identity or incident confirmation.
+- Added a Palantir-inspired Discover workspace with a ranked queue, attributed satellite and MODIS context, metric grid, exact candidate geometry, fingerprint bands, observed-date strip, evidence packet, and explicit interpretation boundary. Sources now exposes the ingestion control plane and recent audit history.
+- Fixed the nine-workspace desktop navigation so tabs do not collide with the source-state control, and added an actual mobile navigation panel so Discover, Sources, Analytics, Validate, and Models remain reachable at small widths.
+- Did not run another GPU training cycle. These stages are deterministic data operations and evidence profiling; the reviewed-label gate remains closed, so GPU training would not add validated capability.
+
+### Verification performed and result
+
+- Python lint across application, tests, Alembic, and ML code — passed.
+- Backend suite — 41 tests passed, including lock cleanup, append ordering, audited refresh success, sanitized failure recording, operational-health boundaries, stable fingerprint IDs, ranked unknowns, and all new API contracts. One upstream Starlette/httpx deprecation warning remains.
+- ML regression suite — two tests passed from the repository root.
+- Frontend lint — passed; production build passed strict TypeScript compilation and Next.js static generation.
+- Docker Compose base configuration and the `live-ingestion` profile both validated successfully.
+- API smoke — `demo_ready`, 1,566 normalized detections, eight observed UTC dates, six bundled source files, 27 unresolved candidates, and one priority candidate. The top candidate is `TS-38F2AAAE6C` at priority 0.694 with six active dates and 21 detections.
+- Live desktop browser QA — Discover rendered the 27-candidate queue, satellite imagery, metric grid, visible thermal symbols, top fingerprint metrics/evidence, and priority/non-confirmation labels. Sources rendered six file-health rows, 27.4-hour observation lag at test time, six-hour cadence, archive telemetry, and the honest no-recorded-run state.
+- Live 390 px browser QA — the full mobile navigation opened, Discover was reachable, its map rendered, and document width remained within the viewport with no horizontal overflow. The viewport was reset after testing.
+
+### Known limitations or next concrete task
+
+- The current fingerprint summarizes only eight observed UTC dates. Its `short_window` maturity cannot support seasonal behavior, long-term normal-operation claims, or source identity; daily scheduled ingestion must accumulate at least 30/90 observed dates.
+- Discovery priority is a transparent review heuristic, not a calibrated probability. The 0.65 queue threshold and component weights need evaluation against independently reviewed source examples.
+- The scheduler profile and contracts were validated, but no live recurring process was left running and no network refresh was forced during this deterministic work session. Deployment must provide the desired cadence, retention, monitoring, and a secret-managed MAP_KEY when authenticated Area API access is required.
+- JSON audit locking coordinates local API/scheduler processes only. Production should persist ingestion runs, source checksums, lineage, retries, and authenticated operator actions in PostgreSQL/PostGIS or another transactional store.
+- The next safe stages are reviewer agreement/quality metrics, production PostGIS lineage and cluster reconciliation, structured release acceptance tests, and calibrated/temporal evaluation only after sufficient reviewed labels and history exist.
+
+## 2026-09-04 — Operator-first web shell and dual-theme redesign
+
+### Objective
+
+Rework the primary web UI from the shell upward so the nine-stage product feels organized and purpose-built, reduce generic equal-weight card treatment, improve desktop/mobile wayfinding, and add a persistent accessible dark/light mode switch without removing any existing intelligence workflow.
+
+### Files or areas touched
+
+- `UI_REDESIGN_PLAN.md` for the evidence-based audit, new information architecture, semantic visual system, responsive behavior, acceptance criteria, and follow-on work;
+- `frontend/src/components/command-center.tsx` for the global shell, grouped navigation, contextual command bar, compact Overview pulse, and theme behavior;
+- `frontend/src/components/thermal-map.tsx` for a stable map-overlay styling hook across themes;
+- `frontend/src/app/globals.css` for semantic dark/light tokens, the new mission rail and command bar, Overview hierarchy, responsive drawer, cross-workspace surface treatment, focus states, and reduced-motion behavior;
+- this living project log.
+
+### Decisions and important implementation details
+
+- Replaced the compressed nine-item top strip with a persistent desktop mission rail grouped by operator intent: Operate (Overview, Events, Monitor), Investigate (Playback, Discover, Analytics), and Govern (Validate, Models, Sources). The rail can collapse to an icon mode and retains the source/readiness and operator contexts.
+- Introduced a contextual command bar for workspace location, live-state context, notifications, account identity, and the global theme switch. Search now appears only where it supports the task (Overview, Events, and Discover), and evidence-brief generation is scoped to Overview.
+- Removed the global four-card KPI slab from eight unrelated workspaces. Overview now uses a compact one-row Mission pulse with detections, high-FRP candidates, corroboration, and open review volume; other stages retain their existing task-specific summaries.
+- Preserved the complete working map stack: actual NASA EOSDIS GIBS imagery, the coordinate grid, FIRMS-derived markers and clusters, land-cover context, facilities, attribution, queue filtering, map selection, and responsive evidence detail.
+- Added shared semantic color roles instead of a one-off inverted palette. Dark and light themes now control canvas, elevated surfaces, borders, text hierarchy, thermal/geospatial accents, warning/success state, map controls, existing analytical surfaces, and native `color-scheme`.
+- The theme preference uses `aegisfire-theme` in browser `localStorage`, follows the operating-system preference when no explicit choice exists, and restores the user choice across reloads. The switch exposes its destination in the accessible label and reports light mode through `aria-pressed`.
+- Added explicit keyboard focus rings, larger shell controls, visible active navigation with icon/text/position in addition to color, and reduced-motion behavior. These improvements reduce known accessibility risk but are not a claim of WCAG conformance.
+- Rebuilt the small-screen navigation as a grouped full-height drawer. At 390 px the global shell removes the desktop rail, presents compact 2×2 pulse telemetry, retains map tools, and avoids placing large KPI cards ahead of the core map.
+- Adjusted the three-column evidence breakpoint from 1,120 px to 1,440 px because the persistent rail reduces usable map width; below that threshold the evidence panel remains available as the existing overlay instead of squeezing the map.
+
+### Verification performed and result
+
+- `npm run lint` — passed with no ESLint errors.
+- `npm run build` — passed Next.js production compilation, strict TypeScript, static page generation, and route finalization.
+- Live browser workspace sweep — all nine destinations rendered a heading and remained reachable; Mission pulse appeared on Overview and was absent from Events, Monitor, Playback, Discover, Analytics, Validate, Models, and Sources.
+- Live theme QA — the accessible control changed from “Switch to light mode” to “Switch to dark mode”, light mode rendered the Overview and Discover workflows, and an explicit light choice survived a full page reload.
+- Live responsive QA at 390 × 844 px — the compact Overview, map, theme button, and grouped mobile drawer rendered; all nine destinations were exposed in the correct three groups. The temporary viewport override was reset after testing.
+- Visual comparison against the pre-redesign captures — the map became the dominant work surface, navigation labels gained meaningful grouping and descriptions, the repeated KPI slab was eliminated, and light mode kept satellite overlays and labels legible.
+
+### Known limitations or next concrete task
+
+- `command-center.tsx` still contains all workspace implementations in one large client component. The next maintainability step is to extract the stable shell and each stage into typed workspace modules without changing behavior.
+- Several domain workspaces still inherit parts of the original very-dense table typography. A follow-up content-density pass should tune tables and charts per workflow after analyst feedback, while preserving the new shell and theme tokens.
+- The browser audit covered representative Overview and Discover states, all navigation destinations, theme persistence, and the mobile drawer. A formal keyboard-only and assistive-technology pass is still needed before making an accessibility-conformance claim.
+- Workspace and selection state remain in memory instead of the URL. Shareable deep links and session restoration are the next high-value navigation improvement.

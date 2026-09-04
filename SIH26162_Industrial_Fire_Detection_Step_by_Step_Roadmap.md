@@ -60,7 +60,7 @@ Give the project a product identity instead of presenting it as a loose collecti
 
 Example name:
 
-## **ThermalWatch AI**
+## **AegisFire**
 
 **One-line pitch:**
 
@@ -1870,7 +1870,7 @@ This makes the project look much more production-ready.
 # PHASE 22 — Recommended Repository Structure
 
 ```text
-thermalwatch-ai/
+aegisfire/
 │
 ├── README.md
 ├── docker-compose.yml

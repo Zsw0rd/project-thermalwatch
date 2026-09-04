@@ -1,16 +1,18 @@
+name: aegisfire
+
 services:
   db:
     image: postgis/postgis:17-3.5
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-thermalwatch}
-      POSTGRES_USER: ${POSTGRES_USER:-thermalwatch}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-thermalwatch}
+      POSTGRES_DB: ${POSTGRES_DB:-aegisfire}
+      POSTGRES_USER: ${POSTGRES_USER:-aegisfire}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aegisfire}
     ports:
       - "5432:5432"
     volumes:
-      - thermalwatch_postgres:/var/lib/postgresql/data
+      - aegisfire_postgres:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-thermalwatch} -d ${POSTGRES_DB:-thermalwatch}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aegisfire} -d ${POSTGRES_DB:-aegisfire}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -21,16 +23,37 @@ services:
     environment:
       APP_ENV: ${APP_ENV:-development}
       DEMO_MODE: ${DEMO_MODE:-true}
-      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://thermalwatch:thermalwatch@db:5432/thermalwatch}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://aegisfire:aegisfire@db:5432/aegisfire}
       API_CORS_ORIGINS: ${API_CORS_ORIGINS:-["http://localhost:3000"]}
       FIRMS_MAP_KEY: ${FIRMS_MAP_KEY:-}
+      FIRMS_REFRESH_INTERVAL_MINUTES: ${FIRMS_REFRESH_INTERVAL_MINUTES:-360}
     ports:
       - "8000:8000"
     volumes:
       - ./backend/data/cache:/app/data/cache
+      - ./backend/data/archive:/app/data/archive
     depends_on:
       db:
         condition: service_healthy
+
+  ingestion-scheduler:
+    profiles: ["live-ingestion"]
+    build:
+      context: ./backend
+    command: ["python", "-m", "app.jobs.firms_refresh", "--loop"]
+    restart: unless-stopped
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      DEMO_MODE: ${DEMO_MODE:-true}
+      FIRMS_MAP_KEY: ${FIRMS_MAP_KEY:-}
+      FIRMS_SOURCE: ${FIRMS_SOURCE:-VIIRS_NOAA20_NRT}
+      FIRMS_DAY_RANGE: ${FIRMS_DAY_RANGE:-1}
+      FIRMS_REQUEST_TIMEOUT_SECONDS: ${FIRMS_REQUEST_TIMEOUT_SECONDS:-30}
+      FIRMS_REFRESH_INTERVAL_MINUTES: ${FIRMS_REFRESH_INTERVAL_MINUTES:-360}
+      INGESTION_AUDIT_FILE: ${INGESTION_AUDIT_FILE:-data/cache/ingestion_run_audit.json}
+    volumes:
+      - ./backend/data/cache:/app/data/cache
+      - ./backend/data/archive:/app/data/archive
 
   web:
     build:
@@ -45,4 +68,4 @@ services:
       - api
 
 volumes:
-  thermalwatch_postgres:
+  aegisfire_postgres:
